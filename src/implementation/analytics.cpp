@@ -28,7 +28,7 @@ void Analytics::ProcessEventsSynchronously(const std::span<const EventTypes::Eve
         {
         case EventTypes::EventType::Spawn:
         {
-            spdlog::debug("Analytics processing event: [Spawn] PlayerID: {} Position: [{}, {}]", currentEvent.spawn.playerId, currentEvent.spawn.position[0], currentEvent.spawn.position[1]);
+            spdlog::debug("Analytics processing event: [Spawn] PlayerID: {} Position: [{} , {}]", currentEvent.spawn.playerId, currentEvent.spawn.position[0], currentEvent.spawn.position[1]);
             
             const auto foundPlayer = _playersStatus.find(currentEvent.spawn.playerId);
             if (foundPlayer == _playersStatus.end() || foundPlayer->second.health == 0)

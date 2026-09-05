@@ -14,6 +14,7 @@ import game_pulse.analytics;
 import game_pulse.domain;
 import game_pulse.pipeline;
 import game_pulse.queue;
+import game_pulse.reporting;
 import game_pulse.simulator;
 
 template <typename T>
@@ -129,6 +130,7 @@ int main(int argc, char** argv)
     {
         std::shared_ptr<TickClock> tickClock = std::make_shared<TickClock>(cfg->tick_duration);
         std::shared_ptr<Analytics> analytics = std::make_shared<Analytics>();
+        std::shared_ptr<Reporting> reporting = std::make_shared<Reporting>(analytics, cfg->snapshot_interval);
         std::shared_ptr<Queue> queue = std::make_shared<Queue>(cfg->queue_capacity);
         std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(tickClock, queue, cfg->batch_size);
 
@@ -191,6 +193,12 @@ int main(int argc, char** argv)
                 assert(false && "Failed to start simulator(s).");
                 return 0;
             }
+        }
+
+        if (const auto result = reporting->SwitchToState(ReportingTypes::TReportingStateMachineState::InProgress); !result)
+        {
+            assert(false && "Failed to start reporting.");
+            return 0;
         }
 
         if (const auto result = pipeline->SwitchToState(TStateMachineState::InProgress); !result)

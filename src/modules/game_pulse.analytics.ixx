@@ -9,7 +9,7 @@ import game_pulse.pipeline;
 
 import <shared_mutex>;
 import <span>;
-import <unordered_map>;
+import <map>;
 
 
 export
@@ -17,7 +17,8 @@ export
 
     namespace AnalyticsType
     {
-        using TPlayerStatusMap = std::unordered_map<T_ID, SnapshotTypes::PlayerStatus>;
+        // Using std::map so the reported logs appear sorted based on player IDs
+        using TPlayerStatusMap = std::map<T_ID, SnapshotTypes::PlayerStatus>;
 
         struct AnalyticsSnapshot
         {
