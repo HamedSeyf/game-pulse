@@ -16,11 +16,12 @@ Reporting::Reporting(std::shared_ptr<Analytics> analytics, std::chrono::millisec
     }
 }
 
-void Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept
+bool Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept
 {
-    spdlog::info("Reporting transitioned to new state. State: {}", std::to_underlying(newState));
-
-    TStateMachine::OnStateTransitionLocked(newState);
+    if (!TStateMachine::OnStateTransitionLocked(newState))
+    {
+        return false;
+    }
 
     try
     {
@@ -40,11 +41,17 @@ void Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMac
     catch (const std::exception& e)
     {
         spdlog::error("{}", e.what());
+        return false;
     }
     catch (...)
     {
         spdlog::error("Unknown non-std::exception thrown inside Reporting::OnStateTransitionLocked.");
+        return false;
     }
+
+    spdlog::info("Reporting transitioned to new state. State: {}", std::to_underlying(newState));
+
+    return true;
 }
 
 void Reporting::WorkerMain(std::stop_token stopToken)

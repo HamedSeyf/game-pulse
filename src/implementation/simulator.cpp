@@ -24,13 +24,13 @@ Simulator::Simulator(
     _playerID(playerID),
     _otherPlayerIDs(otherPlayerIDs.begin(), otherPlayerIDs.end()),
     _tickClock(std::move(tickClock)),
-    _queue(std::move(queue)),
+    _queue(queue),
     _eventGenerationCutoffs(BuildEventGenerationCutoffs(eventGenerationWeights)),
     _randomEngine(randomSeed),
     _targetDistribution{ 0, otherPlayerIDs.size() - 1 },
     _damageDistribution{ 1, PlayerMaxHealth }
 {
-    if (!_tickClock || !_queue || otherPlayerIDs.empty())
+    if (!_tickClock || !queue || otherPlayerIDs.empty())
     {
         throw std::invalid_argument{ "Invalid tickClock, queue or otherPlayerIDs passed to Simulator's ctor." };
     }
@@ -136,24 +136,32 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
     return std::nullopt;
 }
 
-void Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept
+bool Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept
 {
-    spdlog::info("Simulator transitioned to new state. PlayerID: {} State: {}", _playerID, std::to_underlying(newState));
-
-    TStateMachine::OnStateTransitionLocked(newState);
+    if (!TStateMachine::OnStateTransitionLocked(newState))
+    {
+        return false;
+    }
 
     try
     {
         if (newState == SimulatorTypes::TSimulatorStateMachineState::InProgress)
         {
-            if (const auto result = _queue->RegisterSimulator(_playerID); result)
+            auto queue = _queue.lock();
+            if (!queue)
+            {
+                spdlog::error("Simulator failed to acquire queue on start. Rolling back state transition. PlayerID ID: {}", _playerID);
+                return false;
+            }
+
+            if (const auto result = queue->RegisterSimulator(_playerID); result)
             {
                 _queueRegistrationHandle = result.value();
             }
             else
             {
-                spdlog::error("Simulator failed to register with queue. PlayerID: {}", _playerID);
-                return;
+                spdlog::error("Simulator failed to register with queue. Rolling back state transition. PlayerID: {}", _playerID);
+                return false;
             }
 
             _workerThread = std::jthread([this](std::stop_token stopToken)
@@ -171,12 +179,18 @@ void Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMac
     {
         UnregisterFromQueue();
         spdlog::error("{}", e.what());
+        return false;
     }
     catch (...)
     {
         UnregisterFromQueue();
         spdlog::error("Unknown non-std::exception thrown inside Simulator::OnStateTransitionLocked.");
+        return false;
     }
+
+    spdlog::info("Simulator transitioned to new state. PlayerID: {} State: {}", _playerID, std::to_underlying(newState));
+
+    return true;
 }
 
 void Simulator::WorkerMain(std::stop_token stopToken)
@@ -190,9 +204,16 @@ void Simulator::WorkerMain(std::stop_token stopToken)
     {
         try
         {
+            auto queue = _queue.lock();
+            if (!queue)
+            {
+                spdlog::error("Simulator failed to acquire queue inside its WorkerMain. Exitting now. Simulation ID: {}", _playerID);
+                break;
+            }
+            
             if (const auto RandomEvent = CreateRandomEvent(tick); RandomEvent)
             {
-                if (const auto result = _queue->WaitAndPush(_queueRegistrationHandle.value(), RandomEvent.value(), tick, stopToken); !result)
+                if (const auto result = queue->WaitAndPush(_queueRegistrationHandle.value(), RandomEvent.value(), tick, stopToken); !result)
                 {
                     if (stopToken.stop_requested() && result.error() == QueueTypes::Error::operation_cancelled)
                     {
@@ -208,7 +229,7 @@ void Simulator::WorkerMain(std::stop_token stopToken)
                     spdlog::debug("Simulator successfully pushed event to queue. PlayerID: {} EventID: {}", _playerID, RandomEvent->id);
                 }
             }
-            else if (!_queue->UpdateSimulatorWatermark(_queueRegistrationHandle.value(), tick))
+            else if (!queue->UpdateSimulatorWatermark(_queueRegistrationHandle.value(), tick))
             {
                 spdlog::error("Simulator failed to update queue with its latest watermark.");
                 assert(false);
@@ -252,11 +273,14 @@ void Simulator::UnregisterFromQueue()
 {
     try
     {
-        if (_queue && _queueRegistrationHandle)
+        if (auto queue = _queue.lock())
         {
-            if (const auto result = _queue->UnRegisterSimulator(_queueRegistrationHandle.value()); !result)
+            if (_queueRegistrationHandle)
             {
-                spdlog::error("Failed to unregister simulator from queue. PlayerID: {}", _playerID);
+                if (const auto result = queue->UnRegisterSimulator(_queueRegistrationHandle.value()); !result)
+                {
+                    spdlog::error("Failed to unregister simulator from queue. PlayerID: {}", _playerID);
+                }
             }
         }
     }

@@ -15,13 +15,13 @@ import <tuple>;
 
 
 Pipeline::Pipeline(std::shared_ptr<TickClock> tickClock, std::shared_ptr<Queue> queue, const std::size_t batchSize)
-    : _tickClock(std::move(tickClock)), _queue(std::move(queue)), _batch_size(batchSize)
+    : _tickClock(std::move(tickClock)), _queue(queue), _batch_size(batchSize)
 {
-    if (!_tickClock || !_queue || _batch_size == 0)
+    if (!_tickClock || !queue || _batch_size == 0)
     {
         throw std::invalid_argument{ "Invalid tickClock, queue or batchSize passed to Pipeline's ctor." };
     }
-    assert(_batch_size <= _queue->GetCapacity() && "Batch size bigger than queue's capacity is not useful.");
+    assert(_batch_size <= queue->GetCapacity() && "Batch size bigger than queue's capacity is not useful.");
 }
 
 Pipeline::~Pipeline()
@@ -74,11 +74,12 @@ void Pipeline::JoinAndWait()
     }
 }
 
-void Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexcept
 {
-    spdlog::info("Pipeline transitioned to new state. State: {}", std::to_underlying(newState));
-
-    TStateMachine::OnStateTransitionLocked(newState);
+    if (!TStateMachine::OnStateTransitionLocked(newState))
+    {
+        return false;
+    }
 
     try
     {
@@ -98,11 +99,17 @@ void Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexce
     catch (const std::exception& e)
     {
         spdlog::error("{}", e.what());
+        return false;
     }
     catch (...)
     {
         spdlog::error("Unknown non-std::exception thrown inside Pipeline::OnStateTransitionLocked.");
+        return false;
     }
+
+    spdlog::info("Pipeline transitioned to new state. State: {}", std::to_underlying(newState));
+
+    return true;
 }
 
 void Pipeline::WorkerMain(std::stop_token stopToken)
@@ -112,7 +119,15 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
     while (!stopToken.stop_requested() || (GetState() == TStateMachineState::Stopping_Gracefully))
     {
         const TickClock::Tick targetTick = _tickClock->GetCurrentTick();
-        const auto expectedEvents = _queue->WaitAndPop(eventsBatchBuffer, targetTick, stopToken);
+
+        auto queue = _queue.lock();
+        if (!queue)
+        {
+            spdlog::error("Pipeline failed to acquire queue inside its WorkerMain. Exitting now");
+            break;
+        }
+        const auto expectedEvents = queue->WaitAndPop(eventsBatchBuffer, targetTick, stopToken);
+        queue.reset();
 
         if (!expectedEvents)
         {

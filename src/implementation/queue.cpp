@@ -206,16 +206,21 @@ std::expected<void, QueueTypes::Error> Queue::UpdateSimulatorWatermark(TSimulato
     return {};
 }
 
-void Queue::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Queue::OnStateTransitionLocked(const TStateMachineState newState) noexcept
 {
-    spdlog::info("Queue transitioned to new state. State: {}", std::to_underlying(newState));
-
-    TStateMachine::OnStateTransitionLocked(newState);
+    if (!TStateMachine::OnStateTransitionLocked(newState))
+    {
+        return false;
+    }
 
     if (newState == TStateMachineState::Stopped)
     {
         _events_queue.clear();
     }
+
+    spdlog::info("Queue transitioned to new state. State: {}", std::to_underlying(newState));
+
+    return true;
 }
 
 void Queue::OnStateTransitionUnlocked(const TStateMachineState newState) noexcept

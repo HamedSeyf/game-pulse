@@ -59,12 +59,12 @@ export
 
     protected:
         
-        virtual void OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
+        virtual bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 
         std::shared_ptr<TickClock> _tickClock;
-        std::shared_ptr<Queue> _queue;
+        std::weak_ptr<Queue> _queue;
         std::size_t _batch_size;
 
         inline static constexpr std::string_view SubscriptionRegistryKey = "PipelineProcessors";

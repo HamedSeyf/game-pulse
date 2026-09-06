@@ -50,7 +50,7 @@ export
 
     protected:
 
-        void OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept override;
+        bool OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept override;
 
     private:
 
@@ -66,7 +66,7 @@ export
 
         std::shared_ptr<TickClock> _tickClock;
             
-        std::shared_ptr<Queue> _queue;
+        std::weak_ptr<Queue> _queue;
 
         std::optional<Queue::TSimulatorHandle> _queueRegistrationHandle = std::nullopt;
 

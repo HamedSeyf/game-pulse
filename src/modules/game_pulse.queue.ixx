@@ -63,7 +63,7 @@ export
 
     protected:
         
-        virtual void OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
+        virtual bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
         virtual void OnStateTransitionUnlocked(const TStateMachineState newState) noexcept override;
 
     private:

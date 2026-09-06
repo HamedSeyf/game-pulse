@@ -30,7 +30,7 @@ export
 
     protected:
 
-        void OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept override;
+        bool OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept override;
 
     private:
 
