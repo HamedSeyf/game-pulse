@@ -1,6 +1,7 @@
 module;
 
 #include "hamed_common/generic_types.h"
+#include "hamed_common/sorts.h"
 
 #include <spdlog/spdlog.h>
 
@@ -13,6 +14,7 @@ import <cassert>;
 import <limits>;
 import <mutex>;
 import <stdexcept>;
+import <tuple>;
 
 
 Queue::Queue(const std::size_t queue_capacity)
@@ -160,6 +162,14 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop
     }
 
     const bool was_full = _events_queue.full();
+
+    // Simulators push independently and can lag one another, so events can land in the
+    // ring out of tick order. Sort in place before pop_into so what comes out is
+    // chronological rather than push order.
+    BubbleSort(_events_queue, [](const EventTypes::Event& lEvent, const EventTypes::Event& rEvent)
+        {
+            return std::tie(lEvent.tick, lEvent.id) < std::tie(rEvent.tick, rEvent.id);
+        });
 
     const auto retval_span = _events_queue.pop_into(destination, [&throughTick](const auto& event)
         {

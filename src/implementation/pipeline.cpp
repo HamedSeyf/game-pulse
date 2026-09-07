@@ -9,9 +9,7 @@ module game_pulse.pipeline;
 
 import game_pulse.queue;
 
-import <algorithm>;
 import <cassert>;
-import <tuple>;
 
 
 Pipeline::Pipeline(std::shared_ptr<TickClock> tickClock, std::shared_ptr<Queue> queue, const std::size_t batchSize)
@@ -174,10 +172,8 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
             continue;
         }
 
-        std::sort(expectedEvents.value().begin(), expectedEvents.value().end(), [](const EventTypes::Event& lEvent, const EventTypes::Event& rEvent)
-            {
-                return std::tie(lEvent.tick, lEvent.id) < std::tie(rEvent.tick, rEvent.id);
-            });
+        // Events already arrive chronological: Queue::WaitAndPop sorts by (tick, id)
+        // before popping, so no need to re-sort here.
 
         const auto subscribers = _subscriptionRegistry.getSubscribedObjects(Pipeline::SubscriptionRegistryKey);
 
