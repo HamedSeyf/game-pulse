@@ -6,6 +6,7 @@ import <chrono>;
 import <cstddef>;
 import <cstdint>;
 import <stdexcept>;
+import <variant>;
 
 
 export
@@ -49,14 +50,8 @@ export
         {
             T_ID id;
             T_Tick tick;
-            EventType type;
 
-            union
-            {
-                SpawnEvent spawn;
-                MoveEvent move;
-                ShotEvent shot;
-            };
+            std::variant<SpawnEvent, MoveEvent, ShotEvent> data;
         };
     }
 

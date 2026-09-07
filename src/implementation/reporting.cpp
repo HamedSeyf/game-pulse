@@ -101,4 +101,6 @@ void Reporting::WorkerMain(std::stop_token stopToken)
             [] { return false; }
         );
     }
+
+    SwitchToState(ReportingTypes::TReportingStateMachineState::Stopped);
 }

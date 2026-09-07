@@ -6,7 +6,10 @@ export module game_pulse.reporting;
 
 import game_pulse.analytics;
 
+import <chrono>;
 import <condition_variable>;
+import <stop_token>;
+import <thread>;
 
 
 export

@@ -70,13 +70,14 @@ int main(int argc, char** argv)
             if (argument == option)
             {
                 if (++index == argc)
+                {
                     return false;
+                }
                 value = argv[index];
                 return true;
             }
 
-            if (argument.size() > option.size() && argument.starts_with(option)
-                && argument[option.size()] == '=')
+            if (argument.size() > option.size() && argument.starts_with(option) && argument[option.size()] == '=')
             {
                 value = argument.substr(option.size() + 1);
                 return true;
@@ -88,31 +89,45 @@ int main(int argc, char** argv)
         if (read_value("--queue-size"))
         {
             if (!parse_value(value, cfg->queue_capacity))
+            {
                 return 2;
+            }
         }
         else if (read_value("--batch-size"))
         {
             if (!parse_value(value, cfg->batch_size))
+            {
                 return 2;
+            }
         }
         else if (read_value("--player-count"))
         {
             if (!parse_value(value, cfg->player_count))
+            {
                 return 2;
+            }
         }
         else if (read_value("--snapshot-interval"))
         {
             if (!parse_value(value, cfg->snapshot_interval))
+            {
                 return 2;
+            }
         }
         else if (read_value("--shutdown-gracefully"))
         {
             if (value == "true" || value == "1")
+            {
                 cfg->shutdown_gracefully = true;
+            }
             else if (value == "false" || value == "0")
+            {
                 cfg->shutdown_gracefully = false;
+            }
             else
+            {
                 return 2;
+            }
         }
         else
         {
@@ -136,8 +151,9 @@ int main(int argc, char** argv)
 
         if (const auto result = pipeline->RegisterProcessor(analytics); !result)
         {
+            spdlog::critical("Failed to register the analytics.");
             assert(false && "Failed to register the analytics.");
-            return 0;
+            return 1;
         }
 
         /* Simulators for player related events */
@@ -182,29 +198,33 @@ int main(int argc, char** argv)
 
         if (const auto result = queue->SwitchToState(TStateMachineState::InProgress); !result)
         {
+            spdlog::critical("Failed to start the queue.");
             assert(false && "Failed to start the queue.");
-            return 0;
+            return 1;
         }
 
         for (auto& currentSimulator : simulators)
         {
             if (const auto result = currentSimulator->SwitchToState(SimulatorTypes::TSimulatorStateMachineState::InProgress); !result)
             {
+                spdlog::critical("Failed to start simulator(s).");
                 assert(false && "Failed to start simulator(s).");
-                return 0;
+                return 1;
             }
         }
 
         if (const auto result = reporting->SwitchToState(ReportingTypes::TReportingStateMachineState::InProgress); !result)
         {
+            spdlog::critical("Failed to start reporting.");
             assert(false && "Failed to start reporting.");
-            return 0;
+            return 1;
         }
 
         if (const auto result = pipeline->SwitchToState(TStateMachineState::InProgress); !result)
         {
+            spdlog::critical("Failed to start the pipeline.");
             assert(false && "Failed to start the pipeline.");
-            return 0;
+            return 1;
         }
 
         pipeline->JoinAndWait();
@@ -213,16 +233,16 @@ int main(int argc, char** argv)
     {
         spdlog::error("{}", e.what());
         assert(false && "Failed to instantiate and/or start.");
-        return 0;
+        return 1;
     }
     catch (...)
     {
         spdlog::error("Unknown non-std::exception thrown inside main().");
         assert(false && "Failed to instantiate and/or start.");
-        return 0;
+        return 1;
     }
 
     spdlog::shutdown();
 
-    return 1;
+    return 0;
 }

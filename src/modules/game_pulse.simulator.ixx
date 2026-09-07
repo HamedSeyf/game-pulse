@@ -7,7 +7,9 @@ export module game_pulse.simulator;
 import game_pulse.domain;
 import game_pulse.queue;
 
+import <cstdint>;
 import <memory>;
+import <optional>;
 import <random>;
 import <span>;
 import <stop_token>;
@@ -44,7 +46,7 @@ export
             std::shared_ptr<TickClock> tickClock,
             std::shared_ptr<Queue> queue,
             T_ID playerID,
-            const std::span<T_ID> otherPlayerIDs,
+            const std::span<const T_ID> otherPlayerIDs,
             SimulatorTypes::TEventGenerationWeights eventGenerationWeights,
             std::uint64_t randomSeed);
 

@@ -6,7 +6,7 @@ This is a personal learning and portfolio project that aims to cover and demonst
 
 ## Architecture
 
-The core data flow is **Simulators → Queue → Pipeline → Analytics**. Reporting is planned to present the resulting snapshots.
+The core data flow is **Simulators → Queue → Pipeline → Analytics → Reporting**. Reporting periodically reads analytics snapshots and logs each player's health and position.
 
 | Module | Responsibility |
 | --- | --- |
@@ -15,9 +15,9 @@ The core data flow is **Simulators → Queue → Pipeline → Analytics**. Repor
 | [`game_pulse.queue`](src/modules/game_pulse.queue.ixx) | Buffers events in a fixed-capacity ring queue, coordinates blocking producers and consumers, and tracks producer watermarks to determine which ticks are ready for consumption. |
 | [`game_pulse.pipeline`](src/modules/game_pulse.pipeline.ixx) | Consumes batches on a worker thread, sorts each batch by tick and event ID, and dispatches it synchronously to registered processors through a common interface. |
 | [`game_pulse.analytics`](src/modules/game_pulse.analytics.ixx) | Applies events to player health and position, and exposes snapshots protected by a reader/writer mutex. |
-| [`game_pulse.reporting`](src/modules/game_pulse.reporting.ixx) | Placeholder for a future reporting layer that presents analytics snapshots. |
+| [`game_pulse.reporting`](src/modules/game_pulse.reporting.ixx) | Runs a dedicated worker that reads analytics snapshots and logs player health and position, with a configurable interval between reports. |
 
-[`main.cpp`](src/main.cpp) parses configuration, sets up file logging, creates the components, and starts the simulation and processing pipeline.
+[`main.cpp`](src/main.cpp) parses configuration, sets up file logging, creates the components, and starts the simulators, processing pipeline, and reporting worker.
 
 ## C++ and engineering focus
 
@@ -30,7 +30,7 @@ Features used across the application and its `hamed_common` dependency include:
 | C++20 | Standard-library concepts | Use constraints such as `std::destructible`, `std::constructible_from`, `std::predicate`, `std::same_as`, and `std::convertible_to` in payload and shared utility contracts. |
 | C++20 | Lambdas with explicit template parameter lists | Share command-line value parsing between numeric values and chrono durations. |
 | C++20 | Designated initializers | Construct event payloads and event-generation settings with named fields. |
-| C++20 | `std::jthread`, `std::stop_token`, and interruptible condition-variable waits | Manage workers and cooperative cancellation, including queue waits and waits for the next simulation tick. |
+| C++20 | `std::jthread`, `std::stop_token`, and interruptible condition-variable waits | Manage workers and cooperative cancellation, including queue waits, waits for the next simulation tick, and waits between snapshot reports. |
 | C++20 | `std::span` | Pass non-owning views of player IDs and event batches across component boundaries. |
 | C++20 | `std::erase` and `std::string_view::starts_with` | Build each player's target list and recognize command-line options. |
 | C++20 | `std::remove_cvref_t` | Normalize types before checking smart-pointer constraints in `hamed_common`. |
@@ -41,8 +41,9 @@ Features used across the application and its `hamed_common` dependency include:
 The project also uses earlier modern C++ facilities:
 
 - **C++17 `std::optional` and `std::nullopt`** represent potentially absent events, registration handles, and producer watermarks.
+- **C++17 `std::variant` and `std::visit`** store spawn, move, and shot payloads in a type-safe event representation and dispatch analytics processing by payload type.
 - **C++17 `std::string_view` and `std::from_chars`** provide non-owning argument views and numeric parsing.
-- **C++17 `if constexpr`, structured bindings, and initializer statements in `if`** support generic parsing and scoped result handling.
+- **C++17 `if constexpr`, structured bindings, and initializer statements in `if`** support generic parsing, event dispatch, and scoped result handling.
 - **C++17 class template argument deduction and `[[nodiscard]]`** simplify lock declarations and flag discarded results.
 - **RAII, smart pointers, move semantics, type traits, and `static_assert`** express ownership, resource management, and compile-time contracts.
 - **`std::chrono`, atomics, and scoped reader/writer locks** support tick timing, shared IDs, and synchronized snapshots.
@@ -66,14 +67,14 @@ cmake --build build --config Debug
 
 ## Runtime configuration
 
-Command-line parameters let you change queue capacity, processing batch size, and the number of simulated players without rebuilding. Both `--option value` and `--option=value` are supported.
+Command-line parameters let you change queue capacity, processing batch size, the number of simulated players, and the snapshot reporting interval without rebuilding. Both `--option value` and `--option=value` are supported.
 
 | Parameter | Default | Purpose and current status |
 | --- | --- | --- |
 | `--queue-size` | `200` | Maximum number of buffered events. |
 | `--batch-size` | `10` | Maximum number of events consumed in a processing batch. |
 | `--player-count` | `5` | Number of simulated players. The current simulator requires at least two players. |
-| `--snapshot-interval` | `500` | Intended snapshot interval in milliseconds; parsed, with reporting integration still pending. |
+| `--snapshot-interval` | `500` | Wait interval in milliseconds between snapshot reports; must be positive. |
 | `--shutdown-gracefully` | `true` | Intended shutdown policy; accepts `true`/`false` or `1`/`0`, with application-level integration still pending. |
 
 For example, using the Visual Studio Debug build:
@@ -82,9 +83,9 @@ For example, using the Visual Studio Debug build:
 .\build\Debug\game_pulse.exe --queue-size 1000 --batch-size 50 --player-count 10
 ```
 
-Use positive queue and batch sizes, with the batch size no larger than the queue capacity. Tick duration, event-generation weights, and random seeds are currently configured in source, so full command-line configurability is still a development goal.
+Use positive queue and batch sizes and a positive snapshot interval, with the batch size no larger than the queue capacity. Tick duration, event-generation weights, and random seeds are currently configured in source, so full command-line configurability is still a development goal.
 
 
 ## Current status
 
-The simulation-to-analytics path is implemented, with diagnostic output written to `gamepulse.log`. Reporting remains a placeholder, and application-level shutdown orchestration is still in progress. Snapshot scheduling and graceful-shutdown options are parsed but are not yet connected to a complete reporting and shutdown flow.
+The simulation, analytics, and reporting path is implemented. Reporting periodically logs player health and position from analytics snapshots to `gamepulse.log`, alongside diagnostic output. Application-level shutdown orchestration is still in progress; `--shutdown-gracefully` is parsed but is not yet connected to the shutdown flow.

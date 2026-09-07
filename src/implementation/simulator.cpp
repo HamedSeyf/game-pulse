@@ -16,7 +16,7 @@ Simulator::Simulator(
     std::shared_ptr<TickClock> tickClock,
     std::shared_ptr<Queue> queue,
     T_ID playerID,
-    const std::span<T_ID> otherPlayerIDs,
+    const std::span<const T_ID> otherPlayerIDs,
     SimulatorTypes::TEventGenerationWeights eventGenerationWeights,
     std::uint64_t randomSeed
 )
@@ -27,13 +27,14 @@ Simulator::Simulator(
     _queue(queue),
     _eventGenerationCutoffs(BuildEventGenerationCutoffs(eventGenerationWeights)),
     _randomEngine(randomSeed),
-    _targetDistribution{ 0, otherPlayerIDs.size() - 1 },
     _damageDistribution{ 1, PlayerMaxHealth }
 {
     if (!_tickClock || !queue || otherPlayerIDs.empty())
     {
         throw std::invalid_argument{ "Invalid tickClock, queue or otherPlayerIDs passed to Simulator's ctor." };
     }
+
+    _targetDistribution = std::uniform_int_distribution<std::size_t>{ 0, otherPlayerIDs.size() - 1 };
 }
 
 Simulator::TEventGenerationCutoffs Simulator::BuildEventGenerationCutoffs(const SimulatorTypes::TEventGenerationWeights& weights)
@@ -95,8 +96,7 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
         {
             .id = GlobalID::NextID(),
             .tick = tick,
-            .type = EventTypes::EventType::Spawn,
-            .spawn = EventTypes::SpawnEvent
+            .data = EventTypes::SpawnEvent
             {
                 .playerId = _playerID,
                 .position = makeRandomPosition()
@@ -109,8 +109,7 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
         {
             .id = GlobalID::NextID(),
             .tick = tick,
-            .type = EventTypes::EventType::Move,
-            .move = EventTypes::MoveEvent
+            .data = EventTypes::MoveEvent
             {
                 .playerId = _playerID,
                 .position = makeRandomPosition()
@@ -123,8 +122,7 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
         {
             .id = GlobalID::NextID(),
             .tick = tick,
-            .type = EventTypes::EventType::Shot,
-            .shot = EventTypes::ShotEvent
+            .data = EventTypes::ShotEvent
             {
                 .shooterId = _playerID,
                 .targetId = _otherPlayerIDs[_targetDistribution(_randomEngine)],
@@ -207,7 +205,7 @@ void Simulator::WorkerMain(std::stop_token stopToken)
             auto queue = _queue.lock();
             if (!queue)
             {
-                spdlog::error("Simulator failed to acquire queue inside its WorkerMain. Exitting now. Simulation ID: {}", _playerID);
+                spdlog::error("Simulator failed to acquire queue inside its WorkerMain. Exiting now. PlayerID: {}", _playerID);
                 break;
             }
             
@@ -220,7 +218,7 @@ void Simulator::WorkerMain(std::stop_token stopToken)
                         break;
                     }
 
-                    spdlog::error("Simulator failed to push the created event to queue. Exitting this simulator.");
+                    spdlog::error("Simulator failed to push the created event to queue. Exiting this simulator.");
                     assert(false);
                     break;
                 }

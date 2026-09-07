@@ -10,7 +10,9 @@ import game_pulse.domain;
 import <concepts>;
 import <condition_variable>;
 import <cstddef>;
+import <cstdint>;
 import <expected>;
+import <string_view>;
 import <type_traits>;
 import <unordered_map>;
 import <span>;
@@ -41,6 +43,8 @@ export
         };
     }
 
+    // TODO: [Future expansion] Every simulator happens to unregister cleanly on every exit path, so queue does not end up with stalled simulators;
+    // However, the Queue class itself has no timeout or heartbeat protection against a producer that goes silent without unregistering.
     class Queue final : public TStateMachine<>
     {
     public:

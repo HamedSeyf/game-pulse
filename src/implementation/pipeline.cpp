@@ -21,6 +21,7 @@ Pipeline::Pipeline(std::shared_ptr<TickClock> tickClock, std::shared_ptr<Queue> 
     {
         throw std::invalid_argument{ "Invalid tickClock, queue or batchSize passed to Pipeline's ctor." };
     }
+    spdlog::warn("Batch size bigger than queue's capacity is not useful.");
     assert(_batch_size <= queue->GetCapacity() && "Batch size bigger than queue's capacity is not useful.");
 }
 
@@ -123,7 +124,7 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
         auto queue = _queue.lock();
         if (!queue)
         {
-            spdlog::error("Pipeline failed to acquire queue inside its WorkerMain. Exitting now");
+            spdlog::error("Pipeline failed to acquire queue inside its WorkerMain. Exiting now");
             break;
         }
         const auto expectedEvents = queue->WaitAndPop(eventsBatchBuffer, targetTick, stopToken);
@@ -134,22 +135,30 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
             switch (expectedEvents.error())
             {
             case QueueTypes::Error::bad_arguments:
+                spdlog::error("Pipeline passed invalid arguments to Queue::WaitAndPopBatch.");
                 assert(false && "Pipeline passed invalid arguments to Queue::WaitAndPopBatch.");
                 break;
 
             case QueueTypes::Error::internal_error:
+                spdlog::error("Queue::WaitAndPopBatch encountered an internal error.");
                 assert(false && "Queue::WaitAndPopBatch encountered an internal error.");
                 break;
 
             case QueueTypes::Error::queue_not_started_or_shut_down:
-                assert(false && "Broken logic and contract between Pipeline & Queue: queue's state changes should initiate and hense be synced with the pipeline.");
+                spdlog::error("Broken logic and contract between Pipeline & Queue: queue's state changes should initiate and hence be synced with the pipeline.");
+                assert(false && "Broken logic and contract between Pipeline & Queue: queue's state changes should initiate and hence be synced with the pipeline.");
                 break;
 
             case QueueTypes::Error::operation_cancelled:
-                assert(stopToken.stop_requested() && "Broken logic and contract between Pipeline & Queue.");
+                if (!stopToken.stop_requested())
+                {
+                    spdlog::error("Broken logic and contract between Pipeline & Queue.");
+                    assert("Broken logic and contract between Pipeline & Queue.");
+                }
                 break;
 
             default:
+                spdlog::error("Unsupported QueueTypes::Error found inside Pipeline::WorkerMain.");
                 assert(false && "Unsupported QueueTypes::Error found inside Pipeline::WorkerMain.");
                 break;
             }
@@ -174,8 +183,8 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
 
         if (!subscribers)
         {
-            spdlog::error("Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exitting pipeline loop.");
-            assert(false && "Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exitting pipeline loop.");
+            spdlog::error("Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exiting pipeline loop.");
+            assert(false && "Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exiting pipeline loop.");
             break;
         }
 
@@ -222,6 +231,7 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
     {
         if (const auto stopResult = SwitchToState(TStateMachineState::Stopped); !stopResult)
         {
+            spdlog::error("Pipeline failed to transition to Stopped state on its final thread exit.");
             assert(false && "Pipeline failed to transition to Stopped state on its final thread exit.");
         }
     }

@@ -8,7 +8,9 @@ module game_pulse.queue;
 
 import game_pulse.simulator;
 
+import <algorithm>;
 import <cassert>;
+import <limits>;
 import <mutex>;
 import <stdexcept>;
 
@@ -110,6 +112,7 @@ std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simul
         }
         else
         {
+            spdlog::warn("Broken internal logic as _events_queue should not be full and std::move should work on event objects.");
             assert(false && "Broken internal logic as _events_queue should not be full and std::move should work on event objects.");
             return std::unexpected{ QueueTypes::Error::internal_error };
         }
