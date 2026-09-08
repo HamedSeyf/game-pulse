@@ -8,7 +8,7 @@ module game_pulse.reporting;
 
 
 Reporting::Reporting(std::shared_ptr<Analytics> analytics, std::chrono::milliseconds snapshotInterval)
-    : _analytics(analytics), _snapshotInterval(snapshotInterval)
+    : analytics_(analytics), snapshotInterval_(snapshotInterval)
 {
     if (!analytics || snapshotInterval <= std::chrono::milliseconds::zero())
     {
@@ -18,20 +18,20 @@ Reporting::Reporting(std::shared_ptr<Analytics> analytics, std::chrono::millisec
 
 Reporting::~Reporting()
 {
-    SwitchToState(TStateMachineState::Stopped);
+    switchToState(TStateMachineState::Stopped);
 }
 
-void Reporting::JoinAndWait()
+void Reporting::joinAndWait()
 {
-    if (_workerThread.joinable())
+    if (workerThread_.joinable())
     {
-        _workerThread.join();
+        workerThread_.join();
     }
 }
 
-bool Reporting::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Reporting::onStateTransitionLocked(const TStateMachineState newState) noexcept
 {
-    if (!TStateMachine::OnStateTransitionLocked(newState))
+    if (!TStateMachine::onStateTransitionLocked(newState))
     {
         return false;
     }
@@ -40,15 +40,15 @@ bool Reporting::OnStateTransitionLocked(const TStateMachineState newState) noexc
     {
         if (newState == TStateMachineState::InProgress)
         {
-            _workerThread = std::jthread([this](std::stop_token stopToken)
+            workerThread_ = std::jthread([this](std::stop_token stopToken)
                 {
-                    WorkerMain(stopToken);
+                    workerMain(stopToken);
                 }
             );
         }
         else if (newState == TStateMachineState::Stopped)
         {
-            _workerThread.request_stop();
+            workerThread_.request_stop();
         }
     }
     catch (const std::exception& e)
@@ -58,7 +58,7 @@ bool Reporting::OnStateTransitionLocked(const TStateMachineState newState) noexc
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside Reporting::OnStateTransitionLocked.");
+        spdlog::error("Unknown non-std::exception thrown inside Reporting::onStateTransitionLocked.");
         return false;
     }
 
@@ -67,15 +67,15 @@ bool Reporting::OnStateTransitionLocked(const TStateMachineState newState) noexc
     return true;
 }
 
-void Reporting::WorkerMain(std::stop_token stopToken)
+void Reporting::workerMain(std::stop_token stopToken)
 {
     while (!stopToken.stop_requested())
     {
         try
         {
-            if (auto sharedAnalytics = _analytics.lock())
+            if (auto sharedAnalytics = analytics_.lock())
             {
-                const auto snapShot = sharedAnalytics->GetSnapshot();
+                const auto snapShot = sharedAnalytics->getSnapshot();
 
                 for (const auto& currentPlayerDataPair : snapShot.playersStatus)
                 {
@@ -90,7 +90,7 @@ void Reporting::WorkerMain(std::stop_token stopToken)
             else
             {
                 spdlog::warn("Analytics not found. Reporting would stop and exit now.");
-                SwitchToState(TStateMachineState::Stopped);
+                switchToState(TStateMachineState::Stopped);
                 return;
             }
         }
@@ -100,14 +100,14 @@ void Reporting::WorkerMain(std::stop_token stopToken)
         }
         catch (...)
         {
-            spdlog::error("Unknown non-std::exception thrown inside Reporting::WorkerMain.");
+            spdlog::error("Unknown non-std::exception thrown inside Reporting::workerMain.");
         }
 
-        std::chrono::steady_clock::time_point nextWakeUpTime = std::chrono::steady_clock::now() + _snapshotInterval;
+        std::chrono::steady_clock::time_point nextWakeUpTime = std::chrono::steady_clock::now() + snapshotInterval_;
 
-        std::unique_lock lock{ _tickWaitMutex };
+        std::unique_lock lock{ tickWaitMutex_ };
 
-        _reporting_wait_cv.wait_until(
+        reportingWaitCv_.wait_until(
             lock,
             stopToken,
             nextWakeUpTime,
@@ -115,5 +115,5 @@ void Reporting::WorkerMain(std::stop_token stopToken)
         );
     }
 
-    SwitchToState(TStateMachineState::Stopped);
+    switchToState(TStateMachineState::Stopped);
 }

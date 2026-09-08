@@ -13,44 +13,47 @@ import <cassert>;
 
 
 Pipeline::Pipeline(std::shared_ptr<TickClock> tickClock, std::shared_ptr<Queue> queue, const std::size_t batchSize)
-    : _tickClock(std::move(tickClock)), _queue(queue), _batch_size(batchSize)
+    : tickClock_(std::move(tickClock)), queue_(queue), batchSize_(batchSize)
 {
-    if (!_tickClock || !queue || _batch_size == 0)
+    if (!tickClock_ || !queue || batchSize_ == 0)
     {
         throw std::invalid_argument{ "Invalid tickClock, queue or batchSize passed to Pipeline's ctor." };
     }
-    spdlog::warn("Batch size bigger than queue's capacity is not useful.");
-    assert(_batch_size <= queue->GetCapacity() && "Batch size bigger than queue's capacity is not useful.");
+    if (batchSize_ > queue->getCapacity())
+    {
+        spdlog::warn("Batch size bigger than queue's capacity is not useful.");
+        assert(false && "Batch size bigger than queue's capacity is not useful.");
+    }
 }
 
 Pipeline::~Pipeline()
 {
-    SwitchToState(TStateMachineState::Stopped);
+    switchToState(TStateMachineState::Stopped);
 }
 
-std::expected<Pipeline::TProcessorHandle, PipelineTypes::Error> Pipeline::RegisterProcessor(std::shared_ptr<PipelineTypes::ProcessorInterface> processor)
+std::expected<Pipeline::TProcessorHandle, PipelineTypes::Error> Pipeline::registerProcessor(std::shared_ptr<PipelineTypes::ProcessorInterface> processor)
 {
     if (!processor)
     {
-        return std::unexpected{ PipelineTypes::Error::bad_arguments };
+        return std::unexpected{ PipelineTypes::Error::BadArguments };
     }
 
     TProcessorHandle registeredHandle{};
 
     {
-        std::unique_lock lock{ _state_mutex };
+        std::unique_lock lock{ stateMutex_ };
 
-        const bool foundElement = _subscriptionRegistry.forEachSubscribedObject(Pipeline::SubscriptionRegistryKey, [&processor](auto& currentProcessor)
+        const bool foundElement = subscriptionRegistry_.forEachSubscribedObject(Pipeline::kSubscriptionRegistryKey, [&processor](auto& currentProcessor)
             {
-                return PointersHaveSameControlBlock(currentProcessor, processor);
+                return pointersHaveSameControlBlock(currentProcessor, processor);
             });
 
         if (foundElement)
         {
-            return std::unexpected{ PipelineTypes::Error::processor_already_registered };
+            return std::unexpected{ PipelineTypes::Error::ProcessorAlreadyRegistered };
         }
 
-        registeredHandle = _subscriptionRegistry.subscribe(processor, Pipeline::SubscriptionRegistryKey);
+        registeredHandle = subscriptionRegistry_.subscribe(processor, Pipeline::kSubscriptionRegistryKey);
     }
 
     spdlog::info("Pipeline successfully registered processor.");
@@ -58,24 +61,24 @@ std::expected<Pipeline::TProcessorHandle, PipelineTypes::Error> Pipeline::Regist
     return { std::move(registeredHandle) };
 }
 
-std::expected<void, PipelineTypes::Error> Pipeline::UnRegisterProcessor(const TProcessorHandle& handle)
+std::expected<void, PipelineTypes::Error> Pipeline::unRegisterProcessor(const TProcessorHandle& handle)
 {
-    const bool success = _subscriptionRegistry.unsubscribe(handle);
+    const bool success = subscriptionRegistry_.unsubscribe(handle);
     spdlog::info("Pipeline's unregister call result: {} Handle: {}", success, handle);
-    return success ? std::expected<void, PipelineTypes::Error>{} : std::unexpected{ PipelineTypes::Error::processor_not_registered };
+    return success ? std::expected<void, PipelineTypes::Error>{} : std::unexpected{ PipelineTypes::Error::ProcessorNotRegistered };
 }
 
-void Pipeline::JoinAndWait()
+void Pipeline::joinAndWait()
 {
-    if (_workerThread.joinable())
+    if (workerThread_.joinable())
     {
-        _workerThread.join();
+        workerThread_.join();
     }
 }
 
-bool Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Pipeline::onStateTransitionLocked(const TStateMachineState newState) noexcept
 {
-    if (!TStateMachine::OnStateTransitionLocked(newState))
+    if (!TStateMachine::onStateTransitionLocked(newState))
     {
         return false;
     }
@@ -84,15 +87,15 @@ bool Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexce
     {
         if (newState == TStateMachineState::InProgress)
         {
-            _workerThread = std::jthread([this](std::stop_token stopToken)
+            workerThread_ = std::jthread([this](std::stop_token stopToken)
                 {
-                    WorkerMain(stopToken);
+                    workerMain(stopToken);
                 }
             );
         }
         else if (newState == TStateMachineState::Stopped)
         {
-            _workerThread.request_stop();
+            workerThread_.request_stop();
         }
     }
     catch (const std::exception& e)
@@ -102,7 +105,7 @@ bool Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexce
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside Pipeline::OnStateTransitionLocked.");
+        spdlog::error("Unknown non-std::exception thrown inside Pipeline::onStateTransitionLocked.");
         return false;
     }
 
@@ -111,45 +114,49 @@ bool Pipeline::OnStateTransitionLocked(const TStateMachineState newState) noexce
     return true;
 }
 
-void Pipeline::WorkerMain(std::stop_token stopToken)
+void Pipeline::workerMain(std::stop_token stopToken)
 {
-    std::vector<EventTypes::Event> eventsBatchBuffer(_batch_size, {});
+    std::vector<EventTypes::Event> eventsBatchBuffer(batchSize_, {});
 
+    // Whether a stop is graceful or not is decided upstream by the Queue (it either
+    // drains to empty before reporting queueNotStartedOrShutDown below, or clears
+    // immediately) - Pipeline itself just keeps pumping until Queue says there's nothing
+    // left, so it needs no StoppingGracefully state of its own.
     while (!stopToken.stop_requested())
     {
-        const TickClock::Tick targetTick = _tickClock->GetCurrentTick();
+        const TickClock::Tick targetTick = tickClock_->getCurrentTick();
 
-        auto queue = _queue.lock();
+        auto queue = queue_.lock();
         if (!queue)
         {
-            spdlog::error("Pipeline failed to acquire queue inside its WorkerMain. Exiting now");
+            spdlog::error("Pipeline failed to acquire queue inside its workerMain. Exiting now");
             break;
         }
-        const auto expectedEvents = queue->WaitAndPop(eventsBatchBuffer, targetTick, stopToken);
+        const auto expectedEvents = queue->waitAndPop(eventsBatchBuffer, targetTick, stopToken);
         queue.reset();
 
         if (!expectedEvents)
         {
             switch (expectedEvents.error())
             {
-            case QueueTypes::Error::bad_arguments:
-                spdlog::error("Pipeline passed invalid arguments to Queue::WaitAndPopBatch.");
-                assert(false && "Pipeline passed invalid arguments to Queue::WaitAndPopBatch.");
+            case QueueTypes::Error::BadArguments:
+                spdlog::error("Pipeline passed invalid arguments to Queue::waitAndPop.");
+                assert(false && "Pipeline passed invalid arguments to Queue::waitAndPop.");
                 break;
 
-            case QueueTypes::Error::internal_error:
-                spdlog::error("Queue::WaitAndPopBatch encountered an internal error.");
-                assert(false && "Queue::WaitAndPopBatch encountered an internal error.");
+            case QueueTypes::Error::InternalError:
+                spdlog::error("Queue::waitAndPop encountered an internal error.");
+                assert(false && "Queue::waitAndPop encountered an internal error.");
                 break;
 
-            case QueueTypes::Error::queue_not_started_or_shut_down:
+            case QueueTypes::Error::QueueNotStartedOrShutDown:
                 // Expected during shutdown: the queue has either finished draining
                 // (graceful stop) or was cleared immediately (non-graceful stop).
                 // Either way, there is nothing left for this pipeline to do.
                 spdlog::info("Queue has shut down. Pipeline is stopping.");
                 break;
 
-            case QueueTypes::Error::operation_cancelled:
+            case QueueTypes::Error::OperationCancelled:
                 if (!stopToken.stop_requested())
                 {
                     spdlog::error("Broken logic and contract between Pipeline & Queue.");
@@ -158,8 +165,8 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
                 break;
 
             default:
-                spdlog::error("Unsupported QueueTypes::Error found inside Pipeline::WorkerMain.");
-                assert(false && "Unsupported QueueTypes::Error found inside Pipeline::WorkerMain.");
+                spdlog::error("Unsupported QueueTypes::Error found inside Pipeline::workerMain.");
+                assert(false && "Unsupported QueueTypes::Error found inside Pipeline::workerMain.");
                 break;
             }
 
@@ -174,15 +181,15 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
             continue;
         }
 
-        // Events already arrive chronological: Queue::WaitAndPop sorts by (tick, id)
+        // Events already arrive chronological: Queue::waitAndPop sorts by (tick, id)
         // before popping, so no need to re-sort here.
 
-        const auto subscribers = _subscriptionRegistry.getSubscribedObjects(Pipeline::SubscriptionRegistryKey);
+        const auto subscribers = subscriptionRegistry_.getSubscribedObjects(Pipeline::kSubscriptionRegistryKey);
 
         if (!subscribers)
         {
-            spdlog::error("Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exiting pipeline loop.");
-            assert(false && "Failed to fetch subscribers' list inside Pipeline::WorkerMain. Exiting pipeline loop.");
+            spdlog::error("Failed to fetch subscribers' list inside Pipeline::workerMain. Exiting pipeline loop.");
+            assert(false && "Failed to fetch subscribers' list inside Pipeline::workerMain. Exiting pipeline loop.");
             break;
         }
 
@@ -195,7 +202,7 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
             {
                 if (auto lockedSubscriber = currentSubscriber.lock())
                 {
-                    lockedSubscriber->ProcessEventsSynchronously(expectedEvents.value());
+                    lockedSubscriber->processEventsSynchronously(expectedEvents.value());
                 }
                 else
                 {
@@ -216,7 +223,7 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
 
         if (hasExpiredValues)
         {
-            _subscriptionRegistry.removeSubscribedObjectsIf(Pipeline::SubscriptionRegistryKey, [](const auto& currentProcessor)
+            subscriptionRegistry_.removeSubscribedObjectsIf(Pipeline::kSubscriptionRegistryKey, [](const auto& currentProcessor)
                 {
                     return currentProcessor.expired();
                 });
@@ -225,9 +232,9 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
         HAMEDSEYF_CPU_RELAX();
     }
 
-    if (GetState() != TStateMachineState::Stopped)
+    if (getState() != TStateMachineState::Stopped)
     {
-        if (const auto stopResult = SwitchToState(TStateMachineState::Stopped); !stopResult)
+        if (const auto stopResult = switchToState(TStateMachineState::Stopped); !stopResult)
         {
             spdlog::error("Pipeline failed to transition to Stopped state on its final thread exit.");
             assert(false && "Pipeline failed to transition to Stopped state on its final thread exit.");

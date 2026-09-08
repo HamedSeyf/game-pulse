@@ -22,7 +22,6 @@ export
 
     namespace SimulatorTypes
     {
-
         struct TEventGenerationWeights final
         {
             double spawnWeight{};
@@ -39,17 +38,17 @@ export
         explicit Simulator(
             std::shared_ptr<TickClock> tickClock,
             std::shared_ptr<Queue> queue,
-            T_ID playerID,
-            const std::span<const T_ID> otherPlayerIDs,
+            TId playerId,
+            const std::span<const TId> otherPlayerIds,
             SimulatorTypes::TEventGenerationWeights eventGenerationWeights,
             std::uint64_t randomSeed);
         ~Simulator();
 
-        void JoinAndWait();
+        void joinAndWait();
 
     protected:
 
-        bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
+        bool onStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 
@@ -60,30 +59,30 @@ export
             double shotEnd;
         };
 
-        const T_ID _playerID;
-        const std::vector<T_ID> _otherPlayerIDs;
+        const TId playerId_;
+        const std::vector<TId> otherPlayerIds_;
 
-        std::shared_ptr<TickClock> _tickClock;
-            
-        std::weak_ptr<Queue> _queue;
+        std::shared_ptr<TickClock> tickClock_;
 
-        std::optional<Queue::TSimulatorHandle> _queueRegistrationHandle = std::nullopt;
+        std::weak_ptr<Queue> queue_;
 
-        const TEventGenerationCutoffs _eventGenerationCutoffs;
+        std::optional<Queue::TSimulatorHandle> queueRegistrationHandle_ = std::nullopt;
 
-        std::mt19937_64 _randomEngine;
-        std::uniform_real_distribution<double> _unitDistribution{ 0.0, 1.0 };
-        std::uniform_int_distribution<std::size_t> _targetDistribution;
-        std::uniform_int_distribution<TPlayerHealthType> _damageDistribution;
+        const TEventGenerationCutoffs eventGenerationCutoffs_;
 
-        std::jthread _workerThread;
+        std::mt19937_64 randomEngine_;
+        std::uniform_real_distribution<double> unitDistribution_{ 0.0, 1.0 };
+        std::uniform_int_distribution<std::size_t> targetDistribution_;
+        std::uniform_int_distribution<TPlayerHealthType> damageDistribution_;
 
-        void WorkerMain(std::stop_token stopToken);
+        std::jthread workerThread_;
 
-        [[nodiscard]] static TEventGenerationCutoffs BuildEventGenerationCutoffs(const SimulatorTypes::TEventGenerationWeights& weights);
-        [[nodiscard]] std::optional<EventTypes::Event> CreateRandomEvent(const TickClock::Tick tick);
+        void workerMain(std::stop_token stopToken);
 
-        void UnregisterFromQueue();
+        [[nodiscard]] static TEventGenerationCutoffs buildEventGenerationCutoffs(const SimulatorTypes::TEventGenerationWeights& weights);
+        [[nodiscard]] std::optional<EventTypes::Event> createRandomEvent(const TickClock::Tick tick);
+
+        void unRegisterFromQueue();
 
     };
 }

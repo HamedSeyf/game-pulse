@@ -35,19 +35,19 @@ export
         {
             NotStarted = 0,
             InProgress,
-            Stopping_Gracefully,
+            StoppingGracefully,
             Stopped,
         };
 
         enum class Error
         {
-            bad_arguments = 0,
-            internal_error,
-            queue_not_started_or_shut_down,
-            operation_cancelled,
-            regressing_watermark_passed,
-            simulator_already_registered,
-            simulator_not_registered,
+            BadArguments = 0,
+            InternalError,
+            QueueNotStartedOrShutDown,
+            OperationCancelled,
+            RegressingWatermarkPassed,
+            SimulatorAlreadyRegistered,
+            SimulatorNotRegistered,
         };
     }
 
@@ -59,47 +59,47 @@ export
 
         using TSimulatorHandle = std::uint64_t;
 
-        explicit Queue(const std::size_t queue_capacity);
+        explicit Queue(const std::size_t queueCapacity);
 
-        [[nodiscard]] std::size_t GetSize() const;
-        [[nodiscard]] std::size_t GetCapacity() const noexcept { return _events_queue.capacity(); }
+        [[nodiscard]] std::size_t getSize() const;
+        [[nodiscard]] std::size_t getCapacity() const noexcept { return eventsQueue_.capacity(); }
 
-        std::expected<TSimulatorHandle, QueueTypes::Error> RegisterSimulator(T_ID simulatorID);
-        std::expected<void, QueueTypes::Error> UnRegisterSimulator(const TSimulatorHandle& handle);
+        std::expected<TSimulatorHandle, QueueTypes::Error> registerSimulator(TId simulatorId);
+        std::expected<void, QueueTypes::Error> unRegisterSimulator(const TSimulatorHandle& handle);
 
-        std::expected<void, QueueTypes::Error> WaitAndPush(TSimulatorHandle simulatorHandle, EventTypes::Event event, T_Tick completedThroughTick, std::stop_token stopToken);
-        std::expected<std::span<EventTypes::Event>, QueueTypes::Error> WaitAndPop(std::span<EventTypes::Event> destination, T_Tick throughTick, std::stop_token stopToken);
+        std::expected<void, QueueTypes::Error> waitAndPush(TSimulatorHandle simulatorHandle, EventTypes::Event event, TTick completedThroughTick, std::stop_token stopToken);
+        std::expected<std::span<EventTypes::Event>, QueueTypes::Error> waitAndPop(std::span<EventTypes::Event> destination, TTick throughTick, std::stop_token stopToken);
 
-        // Separate call than WaitAndPush in case a simulator doesn't have any events to push but would like to update the queue's watermark to unblock it
-        std::expected<void, QueueTypes::Error> UpdateSimulatorWatermark(TSimulatorHandle simulatorHandle, T_Tick completedThroughTick);
+        // Separate call than waitAndPush in case a simulator doesn't have any events to push but would like to update the queue's watermark to unblock it
+        std::expected<void, QueueTypes::Error> updateSimulatorWatermark(TSimulatorHandle simulatorHandle, TTick completedThroughTick);
 
     protected:
-        
-        virtual bool OnStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept override;
-        virtual void OnStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept override;
+
+        virtual bool onStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept override;
+        virtual void onStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept override;
 
     private:
 
         struct SimulatorEntry
         {
-            T_ID simulatorID;
-            std::shared_ptr<std::optional<T_Tick>> completedThroughTick;
+            TId simulatorId;
+            std::shared_ptr<std::optional<TTick>> completedThroughTick;
         };
 
         static_assert(NothrowQueuePayload<EventTypes::Event> && std::is_trivially_copyable_v<EventTypes::Event>, "Queue requires a trivially copyable & nothrow-movable Event payload.");
 
-        std::condition_variable_any _queue_push_cv;
-        std::condition_variable_any _queue_pop_cv;
+        std::condition_variable_any queuePushCv_;
+        std::condition_variable_any queuePopCv_;
 
-        TRingQueue<EventTypes::Event> _events_queue;
+        TRingQueue<EventTypes::Event> eventsQueue_;
 
-        inline static constexpr std::string_view SubscriptionRegistryKey = "QueueSimulators";
+        inline static constexpr std::string_view kSubscriptionRegistryKey = "QueueSimulators";
 
-        TSubscriptionRegistry<SimulatorEntry, std::string_view, TSimulatorHandle> _subscriptionRegistry;
+        TSubscriptionRegistry<SimulatorEntry, std::string_view, TSimulatorHandle> subscriptionRegistry_;
 
         // Returns whether or not the value has advanced
-        bool UpdateSimulatorWatermarkUnlocked(TSimulatorHandle simulatorHandle, T_Tick completedThroughTick);
-        T_Tick GetSimulatorsThroughTick() const;
+        bool updateSimulatorWatermarkUnlocked(TSimulatorHandle simulatorHandle, TTick completedThroughTick);
+        TTick getSimulatorsThroughTick() const;
 
     };
 

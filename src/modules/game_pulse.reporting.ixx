@@ -22,23 +22,23 @@ export
         explicit Reporting(std::shared_ptr<Analytics> analytics, std::chrono::milliseconds snapshotInterval);
         ~Reporting();
 
-        void JoinAndWait();
+        void joinAndWait();
 
     protected:
 
-        bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
+        bool onStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 
-        std::weak_ptr<const Analytics> _analytics;
-        
-        const std::chrono::milliseconds _snapshotInterval;
+        std::weak_ptr<const Analytics> analytics_;
 
-        mutable std::mutex _tickWaitMutex;
-        std::condition_variable_any _reporting_wait_cv;
+        const std::chrono::milliseconds snapshotInterval_;
 
-        std::jthread _workerThread;
+        mutable std::mutex tickWaitMutex_;
+        std::condition_variable_any reportingWaitCv_;
 
-        void WorkerMain(std::stop_token stopToken);
+        std::jthread workerThread_;
+
+        void workerMain(std::stop_token stopToken);
     };
 }

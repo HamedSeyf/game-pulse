@@ -15,29 +15,29 @@ import <utility>;
 Simulator::Simulator(
     std::shared_ptr<TickClock> tickClock,
     std::shared_ptr<Queue> queue,
-    T_ID playerID,
-    const std::span<const T_ID> otherPlayerIDs,
+    TId playerId,
+    const std::span<const TId> otherPlayerIds,
     SimulatorTypes::TEventGenerationWeights eventGenerationWeights,
     std::uint64_t randomSeed
 )
     :
-    _playerID(playerID),
-    _otherPlayerIDs(otherPlayerIDs.begin(), otherPlayerIDs.end()),
-    _tickClock(std::move(tickClock)),
-    _queue(queue),
-    _eventGenerationCutoffs(BuildEventGenerationCutoffs(eventGenerationWeights)),
-    _randomEngine(randomSeed),
-    _damageDistribution{ 1, PlayerMaxHealth }
+    playerId_(playerId),
+    otherPlayerIds_(otherPlayerIds.begin(), otherPlayerIds.end()),
+    tickClock_(std::move(tickClock)),
+    queue_(queue),
+    eventGenerationCutoffs_(buildEventGenerationCutoffs(eventGenerationWeights)),
+    randomEngine_(randomSeed),
+    damageDistribution_{ 1, kPlayerMaxHealth }
 {
-    if (!_tickClock || !queue || otherPlayerIDs.empty())
+    if (!tickClock_ || !queue || otherPlayerIds.empty())
     {
-        throw std::invalid_argument{ "Invalid tickClock, queue or otherPlayerIDs passed to Simulator's ctor." };
+        throw std::invalid_argument{ "Invalid tickClock, queue or otherPlayerIds passed to Simulator's ctor." };
     }
 
-    _targetDistribution = std::uniform_int_distribution<std::size_t>{ 0, otherPlayerIDs.size() - 1 };
+    targetDistribution_ = std::uniform_int_distribution<std::size_t>{ 0, otherPlayerIds.size() - 1 };
 }
 
-Simulator::TEventGenerationCutoffs Simulator::BuildEventGenerationCutoffs(const SimulatorTypes::TEventGenerationWeights& weights)
+Simulator::TEventGenerationCutoffs Simulator::buildEventGenerationCutoffs(const SimulatorTypes::TEventGenerationWeights& weights)
 {
     const auto isValidWeight = [](const double weight) noexcept
         {
@@ -78,55 +78,55 @@ Simulator::TEventGenerationCutoffs Simulator::BuildEventGenerationCutoffs(const 
     };
 }
 
-std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::Tick tick)
+std::optional<EventTypes::Event> Simulator::createRandomEvent(const TickClock::Tick tick)
 {
-    const double sample = _unitDistribution(_randomEngine);
+    const double sample = unitDistribution_(randomEngine_);
 
     const auto makeRandomPosition = [this]() -> TPlayerPositionType
         {
             return {
-                _unitDistribution(_randomEngine),
-                _unitDistribution(_randomEngine)
+                unitDistribution_(randomEngine_),
+                unitDistribution_(randomEngine_)
             };
         };
 
-    if (sample < _eventGenerationCutoffs.spawnEnd)
+    if (sample < eventGenerationCutoffs_.spawnEnd)
     {
         return EventTypes::Event
         {
-            .id = GlobalID::NextID(),
+            .id = GlobalId::nextId(),
             .tick = tick,
             .data = EventTypes::SpawnEvent
             {
-                .playerId = _playerID,
+                .playerId = playerId_,
                 .position = makeRandomPosition()
             }
         };
     }
-    else if (sample < _eventGenerationCutoffs.moveEnd)
+    else if (sample < eventGenerationCutoffs_.moveEnd)
     {
         return EventTypes::Event
         {
-            .id = GlobalID::NextID(),
+            .id = GlobalId::nextId(),
             .tick = tick,
             .data = EventTypes::MoveEvent
             {
-                .playerId = _playerID,
+                .playerId = playerId_,
                 .position = makeRandomPosition()
             }
         };
     }
-    else if (sample < _eventGenerationCutoffs.shotEnd)
+    else if (sample < eventGenerationCutoffs_.shotEnd)
     {
         return EventTypes::Event
         {
-            .id = GlobalID::NextID(),
+            .id = GlobalId::nextId(),
             .tick = tick,
             .data = EventTypes::ShotEvent
             {
-                .shooterId = _playerID,
-                .targetId = _otherPlayerIDs[_targetDistribution(_randomEngine)],
-                .damage = _damageDistribution(_randomEngine)
+                .shooterId = playerId_,
+                .targetId = otherPlayerIds_[targetDistribution_(randomEngine_)],
+                .damage = damageDistribution_(randomEngine_)
             }
         };
     }
@@ -136,20 +136,20 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
 
 Simulator::~Simulator()
 {
-    SwitchToState(TStateMachineState::Stopped);
+    switchToState(TStateMachineState::Stopped);
 }
 
-void Simulator::JoinAndWait()
+void Simulator::joinAndWait()
 {
-    if (_workerThread.joinable())
+    if (workerThread_.joinable())
     {
-        _workerThread.join();
+        workerThread_.join();
     }
 }
 
-bool Simulator::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Simulator::onStateTransitionLocked(const TStateMachineState newState) noexcept
 {
-    if (!TStateMachine::OnStateTransitionLocked(newState))
+    if (!TStateMachine::onStateTransitionLocked(newState))
     {
         return false;
     }
@@ -158,75 +158,75 @@ bool Simulator::OnStateTransitionLocked(const TStateMachineState newState) noexc
     {
         if (newState == TStateMachineState::InProgress)
         {
-            auto queue = _queue.lock();
+            auto queue = queue_.lock();
             if (!queue)
             {
-                spdlog::error("Simulator failed to acquire queue on start. Rolling back state transition. PlayerID ID: {}", _playerID);
+                spdlog::error("Simulator failed to acquire queue on start. Rolling back state transition. PlayerID ID: {}", playerId_);
                 return false;
             }
 
-            if (const auto result = queue->RegisterSimulator(_playerID); result)
+            if (const auto result = queue->registerSimulator(playerId_); result)
             {
-                _queueRegistrationHandle = result.value();
+                queueRegistrationHandle_ = result.value();
             }
             else
             {
-                spdlog::error("Simulator failed to register with queue. Rolling back state transition. PlayerID: {}", _playerID);
+                spdlog::error("Simulator failed to register with queue. Rolling back state transition. PlayerID: {}", playerId_);
                 return false;
             }
 
-            _workerThread = std::jthread([this](std::stop_token stopToken)
+            workerThread_ = std::jthread([this](std::stop_token stopToken)
                 {
-                    WorkerMain(stopToken);
+                    workerMain(stopToken);
                 }
             );
         }
         else if (newState == TStateMachineState::Stopped)
         {
-            _workerThread.request_stop();
+            workerThread_.request_stop();
         }
     }
     catch (const std::exception& e)
     {
-        UnregisterFromQueue();
+        unRegisterFromQueue();
         spdlog::error("{}", e.what());
         return false;
     }
     catch (...)
     {
-        UnregisterFromQueue();
-        spdlog::error("Unknown non-std::exception thrown inside Simulator::OnStateTransitionLocked.");
+        unRegisterFromQueue();
+        spdlog::error("Unknown non-std::exception thrown inside Simulator::onStateTransitionLocked.");
         return false;
     }
 
-    spdlog::info("Simulator transitioned to new state. PlayerID: {} State: {}", _playerID, std::to_underlying(newState));
+    spdlog::info("Simulator transitioned to new state. PlayerID: {} State: {}", playerId_, std::to_underlying(newState));
 
     return true;
 }
 
-void Simulator::WorkerMain(std::stop_token stopToken)
+void Simulator::workerMain(std::stop_token stopToken)
 {
     std::mutex tickWaitMutex;
     std::condition_variable_any tickWaitCV;
 
-    T_Tick tick = _tickClock->GetCurrentTick();
+    TTick tick = tickClock_->getCurrentTick();
 
     while (!stopToken.stop_requested())
     {
         try
         {
-            auto queue = _queue.lock();
+            auto queue = queue_.lock();
             if (!queue)
             {
-                spdlog::error("Simulator failed to acquire queue inside its WorkerMain. Exiting now. PlayerID: {}", _playerID);
+                spdlog::error("Simulator failed to acquire queue inside its workerMain. Exiting now. PlayerID: {}", playerId_);
                 break;
             }
-            
-            if (const auto RandomEvent = CreateRandomEvent(tick); RandomEvent)
+
+            if (const auto randomEvent = createRandomEvent(tick); randomEvent)
             {
-                if (const auto result = queue->WaitAndPush(_queueRegistrationHandle.value(), RandomEvent.value(), tick, stopToken); !result)
+                if (const auto result = queue->waitAndPush(queueRegistrationHandle_.value(), randomEvent.value(), tick, stopToken); !result)
                 {
-                    if (stopToken.stop_requested() && result.error() == QueueTypes::Error::operation_cancelled)
+                    if (stopToken.stop_requested() && result.error() == QueueTypes::Error::OperationCancelled)
                     {
                         break;
                     }
@@ -237,10 +237,10 @@ void Simulator::WorkerMain(std::stop_token stopToken)
                 }
                 else
                 {
-                    spdlog::debug("Simulator successfully pushed event to queue. PlayerID: {} EventID: {}", _playerID, RandomEvent->id);
+                    spdlog::debug("Simulator successfully pushed event to queue. PlayerID: {} EventID: {}", playerId_, randomEvent->id);
                 }
             }
-            else if (!queue->UpdateSimulatorWatermark(_queueRegistrationHandle.value(), tick))
+            else if (!queue->updateSimulatorWatermark(queueRegistrationHandle_.value(), tick))
             {
                 spdlog::error("Simulator failed to update queue with its latest watermark.");
                 assert(false);
@@ -253,14 +253,14 @@ void Simulator::WorkerMain(std::stop_token stopToken)
                 (void)tickWaitCV.wait_until(
                     lock,
                     stopToken,
-                    _tickClock->GetStartOfTick(tick + 1),
+                    tickClock_->getStartOfTick(tick + 1),
                     [this, tick]
                     {
-                        return _tickClock->GetCurrentTick() > tick;
+                        return tickClock_->getCurrentTick() > tick;
                     });
             }
 
-            tick = _tickClock->GetCurrentTick();
+            tick = tickClock_->getCurrentTick();
 
         }
         catch (const std::exception& e)
@@ -270,27 +270,27 @@ void Simulator::WorkerMain(std::stop_token stopToken)
         }
         catch (...)
         {
-            spdlog::error("Unknown non-std::exception thrown inside Simulator::WorkerMain.");
+            spdlog::error("Unknown non-std::exception thrown inside Simulator::workerMain.");
             break;
         }
     }
 
-    SwitchToState(TStateMachineState::Stopped);
+    switchToState(TStateMachineState::Stopped);
 
-    UnregisterFromQueue();
+    unRegisterFromQueue();
 }
 
-void Simulator::UnregisterFromQueue()
+void Simulator::unRegisterFromQueue()
 {
     try
     {
-        if (auto queue = _queue.lock())
+        if (auto queue = queue_.lock())
         {
-            if (_queueRegistrationHandle)
+            if (queueRegistrationHandle_)
             {
-                if (const auto result = queue->UnRegisterSimulator(_queueRegistrationHandle.value()); !result)
+                if (const auto result = queue->unRegisterSimulator(queueRegistrationHandle_.value()); !result)
                 {
-                    spdlog::error("Failed to unregister simulator from queue. PlayerID: {}", _playerID);
+                    spdlog::error("Failed to unregister simulator from queue. PlayerID: {}", playerId_);
                 }
             }
         }
@@ -301,9 +301,9 @@ void Simulator::UnregisterFromQueue()
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside Simulator::UnregisterFromQueue.");
+        spdlog::error("Unknown non-std::exception thrown inside Simulator::unRegisterFromQueue.");
     }
 
-    _queue.reset();
-    _queueRegistrationHandle.reset();
+    queue_.reset();
+    queueRegistrationHandle_.reset();
 }

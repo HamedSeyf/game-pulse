@@ -17,43 +17,43 @@ import <stdexcept>;
 import <tuple>;
 
 
-Queue::Queue(const std::size_t queue_capacity)
-    : _events_queue { queue_capacity }
+Queue::Queue(const std::size_t queueCapacity)
+    : eventsQueue_ { queueCapacity }
 {
-    if (queue_capacity == 0)
+    if (queueCapacity == 0)
     {
         throw std::invalid_argument{ "Queue capacity must be greater than zero." };
     }
 }
 
-std::size_t Queue::GetSize() const
+std::size_t Queue::getSize() const
 {
-    std::lock_guard<std::mutex> lock(_state_mutex);
-    return _events_queue.size();
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return eventsQueue_.size();
 }
 
-std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::RegisterSimulator(T_ID simulatorID)
+std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::registerSimulator(TId simulatorId)
 {
     TSimulatorHandle registeredHandle{};
-    SimulatorEntry newSimulatorEntry{ std::move(simulatorID), std::make_shared<std::optional<T_Tick>>(std::nullopt) };
+    SimulatorEntry newSimulatorEntry{ std::move(simulatorId), std::make_shared<std::optional<TTick>>(std::nullopt) };
 
     {
         // Serialize duplicate checking and insertion so concurrent registrations
         // cannot register the same simulator ID. The registry locks each call
         // separately, so this sequence requires an outer lock.
-        std::unique_lock lock{ _state_mutex };
+        std::unique_lock lock{ stateMutex_ };
 
-        const bool foundSimulator = _subscriptionRegistry.forEachSubscribedObject(Queue::SubscriptionRegistryKey, [&newSimulatorEntry](const auto& currentSimulatorEntry)
+        const bool foundSimulator = subscriptionRegistry_.forEachSubscribedObject(Queue::kSubscriptionRegistryKey, [&newSimulatorEntry](const auto& currentSimulatorEntry)
             {
-                return currentSimulatorEntry.simulatorID == newSimulatorEntry.simulatorID;
+                return currentSimulatorEntry.simulatorId == newSimulatorEntry.simulatorId;
             });
 
         if (foundSimulator)
         {
-            return std::unexpected{ QueueTypes::Error::simulator_already_registered };
+            return std::unexpected{ QueueTypes::Error::SimulatorAlreadyRegistered };
         }
 
-        registeredHandle = _subscriptionRegistry.subscribe(newSimulatorEntry, Queue::SubscriptionRegistryKey);
+        registeredHandle = subscriptionRegistry_.subscribe(newSimulatorEntry, Queue::kSubscriptionRegistryKey);
     }
 
     spdlog::info("Queue successfully registered simulator with handle: {}", registeredHandle);
@@ -61,173 +61,173 @@ std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::RegisterSimulat
     return { std::move(registeredHandle) };
 }
 
-std::expected<void, QueueTypes::Error> Queue::UnRegisterSimulator(const TSimulatorHandle& handle)
+std::expected<void, QueueTypes::Error> Queue::unRegisterSimulator(const TSimulatorHandle& handle)
 {
-    const bool success = _subscriptionRegistry.unsubscribe(handle);
+    const bool success = subscriptionRegistry_.unsubscribe(handle);
     spdlog::info("Queue's unregister call result: {} Handle: {}", success, handle);
-    return success ? std::expected<void, QueueTypes::Error>{} : std::unexpected{ QueueTypes::Error::simulator_not_registered };
+    return success ? std::expected<void, QueueTypes::Error>{} : std::unexpected{ QueueTypes::Error::SimulatorNotRegistered };
 }
 
-std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simulatorHandle, EventTypes::Event event, T_Tick completedThroughTick, std::stop_token stopToken)
+std::expected<void, QueueTypes::Error> Queue::waitAndPush(TSimulatorHandle simulatorHandle, EventTypes::Event event, TTick completedThroughTick, std::stop_token stopToken)
 {
-    if (GetState() != QueueTypes::TStateMachineState::InProgress)
+    if (getState() != QueueTypes::TStateMachineState::InProgress)
     {
-        return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
+        return std::unexpected{ QueueTypes::Error::QueueNotStartedOrShutDown };
     }
 
     {
-        std::unique_lock<std::mutex> lock(_state_mutex);
+        std::unique_lock<std::mutex> lock(stateMutex_);
 
-        _queue_push_cv.wait(
+        queuePushCv_.wait(
             lock,
             stopToken,
             [this]
             {
-                return GetState() != QueueTypes::TStateMachineState::InProgress || !_events_queue.full();
+                return getState() != QueueTypes::TStateMachineState::InProgress || !eventsQueue_.full();
             }
         );
 
         // Individual simulator cancellation.
         if (stopToken.stop_requested())
         {
-            return std::unexpected{ QueueTypes::Error::operation_cancelled };
+            return std::unexpected{ QueueTypes::Error::OperationCancelled };
         }
 
-        if (GetState() != QueueTypes::TStateMachineState::InProgress)
+        if (getState() != QueueTypes::TStateMachineState::InProgress)
         {
-            return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
+            return std::unexpected{ QueueTypes::Error::QueueNotStartedOrShutDown };
         }
 
-        if (!UpdateSimulatorWatermarkUnlocked(std::move(simulatorHandle), std::move(completedThroughTick)))
+        if (!updateSimulatorWatermarkUnlocked(std::move(simulatorHandle), std::move(completedThroughTick)))
         {
-            return std::unexpected{ QueueTypes::Error::regressing_watermark_passed };
+            return std::unexpected{ QueueTypes::Error::RegressingWatermarkPassed };
         }
 
-        if (_events_queue.try_emplace(std::move(event)))
+        if (eventsQueue_.try_emplace(std::move(event)))
         {
             // This is for debugging purposes only so worth the minor overhead
-            if (_events_queue.full())
+            if (eventsQueue_.full())
             {
                 spdlog::warn("Queue has reached its capacity.");
             }
         }
         else
         {
-            spdlog::warn("Broken internal logic as _events_queue should not be full and std::move should work on event objects.");
-            assert(false && "Broken internal logic as _events_queue should not be full and std::move should work on event objects.");
-            return std::unexpected{ QueueTypes::Error::internal_error };
+            spdlog::warn("Broken internal logic as eventsQueue_ should not be full and std::move should work on event objects.");
+            assert(false && "Broken internal logic as eventsQueue_ should not be full and std::move should work on event objects.");
+            return std::unexpected{ QueueTypes::Error::InternalError };
         }
     }
 
-    _queue_pop_cv.notify_one();
+    queuePopCv_.notify_one();
 
     return {};
 }
 
-std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop(std::span<EventTypes::Event> destination, T_Tick throughTick, std::stop_token stopToken)
+std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::waitAndPop(std::span<EventTypes::Event> destination, TTick throughTick, std::stop_token stopToken)
 {
-    if (GetState() != QueueTypes::TStateMachineState::InProgress)
+    if (getState() != QueueTypes::TStateMachineState::InProgress)
     {
-        return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
+        return std::unexpected{ QueueTypes::Error::QueueNotStartedOrShutDown };
     }
-    
+
     if (destination.size() == 0)
     {
-        return std::unexpected{ QueueTypes::Error::bad_arguments };
+        return std::unexpected{ QueueTypes::Error::BadArguments };
     }
 
-    std::unique_lock lock{ _state_mutex };
+    std::unique_lock lock{ stateMutex_ };
 
-    _queue_pop_cv.wait(
+    queuePopCv_.wait(
         lock,
         stopToken,
         [this, &throughTick]
         {
-            return (!_events_queue.empty() && GetSimulatorsThroughTick() >= throughTick) || GetState() == QueueTypes::TStateMachineState::Stopped;
+            return (!eventsQueue_.empty() && getSimulatorsThroughTick() >= throughTick) || getState() == QueueTypes::TStateMachineState::Stopped;
         }
     );
 
     // Individual simulator cancellation.
     if (stopToken.stop_requested())
     {
-        return std::unexpected{ QueueTypes::Error::operation_cancelled };
+        return std::unexpected{ QueueTypes::Error::OperationCancelled };
     }
 
-    const auto cached_state = GetState();
+    const auto cachedState = getState();
 
-    if (cached_state == QueueTypes::TStateMachineState::Stopped)
+    if (cachedState == QueueTypes::TStateMachineState::Stopped)
     {
-        return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
+        return std::unexpected{ QueueTypes::Error::QueueNotStartedOrShutDown };
     }
 
-    const bool was_full = _events_queue.full();
+    const bool wasFull = eventsQueue_.full();
 
     // Simulators push independently and can lag one another, so events can land in the
     // ring out of tick order. Sort in place before pop_into so what comes out is
     // chronological rather than push order.
-    BubbleSort(_events_queue, [](const EventTypes::Event& lEvent, const EventTypes::Event& rEvent)
+    bubbleSort(eventsQueue_, [](const EventTypes::Event& lEvent, const EventTypes::Event& rEvent)
         {
             return std::tie(lEvent.tick, lEvent.id) < std::tie(rEvent.tick, rEvent.id);
         });
 
-    const auto retval_span = _events_queue.pop_into(destination, [&throughTick](const auto& event)
+    const auto retvalSpan = eventsQueue_.pop_into(destination, [&throughTick](const auto& event)
         {
             return event.tick <= throughTick;
         });
-    const bool shouldStop = cached_state == QueueTypes::TStateMachineState::Stopping_Gracefully && _events_queue.empty();
+    const bool shouldStop = cachedState == QueueTypes::TStateMachineState::StoppingGracefully && eventsQueue_.empty();
 
     if (shouldStop)
     {
-        SwitchToStateLocked(lock, QueueTypes::TStateMachineState::Stopped);
+        switchToStateLocked(lock, QueueTypes::TStateMachineState::Stopped);
     }
 
     lock.unlock();
 
     if (shouldStop)
     {
-        OnStateTransitionUnlocked(QueueTypes::TStateMachineState::Stopped);
+        onStateTransitionUnlocked(QueueTypes::TStateMachineState::Stopped);
     }
 
     // Check whether or not we should notify all waiters
-    if (cached_state == QueueTypes::TStateMachineState::InProgress && was_full)
+    if (cachedState == QueueTypes::TStateMachineState::InProgress && wasFull)
     {
-        _queue_push_cv.notify_all();
+        queuePushCv_.notify_all();
     }
 
-    return retval_span;
+    return retvalSpan;
 }
 
-std::expected<void, QueueTypes::Error> Queue::UpdateSimulatorWatermark(TSimulatorHandle simulatorId, T_Tick completedThroughTick)
+std::expected<void, QueueTypes::Error> Queue::updateSimulatorWatermark(TSimulatorHandle simulatorHandle, TTick completedThroughTick)
 {
     {
-        std::lock_guard lock{ _state_mutex };
+        std::lock_guard lock{ stateMutex_ };
 
-        if (const auto cached_state = GetState(); cached_state != QueueTypes::TStateMachineState::InProgress)
+        if (const auto cachedState = getState(); cachedState != QueueTypes::TStateMachineState::InProgress)
         {
-            return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
+            return std::unexpected{ QueueTypes::Error::QueueNotStartedOrShutDown };
         }
 
-        if (!UpdateSimulatorWatermarkUnlocked(simulatorId, completedThroughTick))
+        if (!updateSimulatorWatermarkUnlocked(simulatorHandle, completedThroughTick))
         {
-            return std::unexpected{ QueueTypes::Error::regressing_watermark_passed };
+            return std::unexpected{ QueueTypes::Error::RegressingWatermarkPassed };
         }
     }
 
-    _queue_pop_cv.notify_one();
+    queuePopCv_.notify_one();
 
     return {};
 }
 
-bool Queue::OnStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept
+bool Queue::onStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept
 {
-    if (!TStateMachine::OnStateTransitionLocked(newState))
+    if (!TStateMachine::onStateTransitionLocked(newState))
     {
         return false;
     }
 
     if (newState == QueueTypes::TStateMachineState::Stopped)
     {
-        _events_queue.clear();
+        eventsQueue_.clear();
     }
 
     spdlog::info("Queue transitioned to new state. State: {}", std::to_underlying(newState));
@@ -235,42 +235,42 @@ bool Queue::OnStateTransitionLocked(const QueueTypes::TStateMachineState newStat
     return true;
 }
 
-void Queue::OnStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept
+void Queue::onStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept
 {
-    if (newState == QueueTypes::TStateMachineState::Stopping_Gracefully || newState == QueueTypes::TStateMachineState::Stopped)
+    if (newState == QueueTypes::TStateMachineState::StoppingGracefully || newState == QueueTypes::TStateMachineState::Stopped)
     {
-        _queue_push_cv.notify_all();
-        _queue_pop_cv.notify_all();
+        queuePushCv_.notify_all();
+        queuePopCv_.notify_all();
     }
 }
 
-bool Queue::UpdateSimulatorWatermarkUnlocked(TSimulatorHandle simulatorHandle, T_Tick completedThroughTick)
+bool Queue::updateSimulatorWatermarkUnlocked(TSimulatorHandle simulatorHandle, TTick completedThroughTick)
 {
-    if (auto foundSimulator = _subscriptionRegistry.getSubscribedObject(Queue::SubscriptionRegistryKey, simulatorHandle); foundSimulator)
+    if (auto foundSimulator = subscriptionRegistry_.getSubscribedObject(Queue::kSubscriptionRegistryKey, simulatorHandle); foundSimulator)
     {
-        if (foundSimulator->completedThroughTick->value_or(T_Tick{}) > completedThroughTick)
+        if (foundSimulator->completedThroughTick->value_or(TTick{}) > completedThroughTick)
         {
             return false;
         }
 
         foundSimulator->completedThroughTick->emplace(completedThroughTick);
 
-        spdlog::debug("Queue successfully updated simulator's watermark. SimulatorId: {} Watermark: {}", std::move(foundSimulator->simulatorID), std::move(completedThroughTick));
+        spdlog::debug("Queue successfully updated simulator's watermark. SimulatorId: {} Watermark: {}", std::move(foundSimulator->simulatorId), std::move(completedThroughTick));
 
         return true;
     }
     return false;
 }
 
-T_Tick Queue::GetSimulatorsThroughTick() const
+TTick Queue::getSimulatorsThroughTick() const
 {
-    T_Tick throughTick{ std::numeric_limits<T_Tick>::max() };
+    TTick throughTick{ std::numeric_limits<TTick>::max() };
 
-    (void)_subscriptionRegistry.forEachSubscribedObject(Queue::SubscriptionRegistryKey, [&throughTick](const auto& currentSimulatorEntry)
+    (void)subscriptionRegistry_.forEachSubscribedObject(Queue::kSubscriptionRegistryKey, [&throughTick](const auto& currentSimulatorEntry)
         {
             if (!currentSimulatorEntry.completedThroughTick || !currentSimulatorEntry.completedThroughTick->has_value())
             {
-                throughTick = T_Tick{};
+                throughTick = TTick{};
                 return true;
             }
             throughTick = std::min(throughTick, currentSimulatorEntry.completedThroughTick->value());

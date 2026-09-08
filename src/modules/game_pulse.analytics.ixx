@@ -15,10 +15,10 @@ import <map>;
 export
 {
 
-    namespace AnalyticsType
+    namespace AnalyticsTypes
     {
         // Using std::map so the reported logs appear sorted based on player IDs
-        using TPlayerStatusMap = std::map<T_ID, SnapshotTypes::PlayerStatus>;
+        using TPlayerStatusMap = std::map<TId, SnapshotTypes::PlayerStatus>;
 
         struct AnalyticsSnapshot
         {
@@ -30,16 +30,16 @@ export
     {
     public:
 
-        [[nodiscard]] virtual AnalyticsType::AnalyticsSnapshot GetSnapshot() const;
+        [[nodiscard]] virtual AnalyticsTypes::AnalyticsSnapshot getSnapshot() const;
 
         // PipelineTypes::ProcessorInterface override(s)
-        virtual void ProcessEventsSynchronously(const std::span<const EventTypes::Event>& events) override;
+        virtual void processEventsSynchronously(const std::span<const EventTypes::Event>& events) override;
 
     protected:
 
-        mutable std::shared_mutex _mutex;
+        mutable std::shared_mutex mutex_;
 
-        AnalyticsType::TPlayerStatusMap _playersStatus;
+        AnalyticsTypes::TPlayerStatusMap playersStatus_;
     };
 
 }

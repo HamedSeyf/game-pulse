@@ -10,20 +10,20 @@ import <type_traits>;
 import <variant>;
 
 
-AnalyticsType::AnalyticsSnapshot Analytics::GetSnapshot() const
+AnalyticsTypes::AnalyticsSnapshot Analytics::getSnapshot() const
 {
-    std::shared_lock lock(_mutex);
-    return AnalyticsType::AnalyticsSnapshot{ _playersStatus };
+    std::shared_lock lock(mutex_);
+    return AnalyticsTypes::AnalyticsSnapshot{ playersStatus_ };
 }
 
-void Analytics::ProcessEventsSynchronously(const std::span<const EventTypes::Event>& events)
+void Analytics::processEventsSynchronously(const std::span<const EventTypes::Event>& events)
 {
     if (events.empty())
     {
         return;
     }
-    
-    std::unique_lock<std::shared_mutex> lock(_mutex);
+
+    std::unique_lock<std::shared_mutex> lock(mutex_);
 
     for (const auto& currentEvent : events)
     {
@@ -35,22 +35,22 @@ void Analytics::ProcessEventsSynchronously(const std::span<const EventTypes::Eve
                 {
                     spdlog::debug("Analytics processing event: [Spawn] PlayerID: {} Position: [{} , {}]", data.playerId, data.position[0], data.position[1]);
 
-                    const auto foundPlayer = _playersStatus.find(data.playerId);
-                    if (foundPlayer == _playersStatus.end() || foundPlayer->second.health == 0)
+                    const auto foundPlayer = playersStatus_.find(data.playerId);
+                    if (foundPlayer == playersStatus_.end() || foundPlayer->second.health == 0)
                     {
                         try
                         {
-                            _playersStatus[data.playerId] = { PlayerMaxHealth , data.position };
+                            playersStatus_[data.playerId] = { kPlayerMaxHealth , data.position };
                         }
                         catch (const std::exception& e)
                         {
                             spdlog::error("{}", e.what());
-                            assert(false && "Allocation failed inside Analytics::ProcessEventsSynchronously.");
+                            assert(false && "Allocation failed inside Analytics::processEventsSynchronously.");
                         }
                         catch (...)
                         {
-                            spdlog::error("Unknown non-std::exception thrown inside Analytics::ProcessEventsSynchronously.");
-                            assert(false && "Allocation failed inside Analytics::ProcessEventsSynchronously.");
+                            spdlog::error("Unknown non-std::exception thrown inside Analytics::processEventsSynchronously.");
+                            assert(false && "Allocation failed inside Analytics::processEventsSynchronously.");
                         }
                     }
                 }
@@ -58,8 +58,8 @@ void Analytics::ProcessEventsSynchronously(const std::span<const EventTypes::Eve
                 {
                     spdlog::debug("Analytics processing event: [Move] PlayerID: {} Position: [{}, {}]", data.playerId, data.position[0], data.position[1]);
 
-                    const auto foundPlayer = _playersStatus.find(data.playerId);
-                    if (foundPlayer != _playersStatus.end() && foundPlayer->second.health > 0)
+                    const auto foundPlayer = playersStatus_.find(data.playerId);
+                    if (foundPlayer != playersStatus_.end() && foundPlayer->second.health > 0)
                     {
                         foundPlayer->second.position = data.position;
                     }
@@ -68,18 +68,18 @@ void Analytics::ProcessEventsSynchronously(const std::span<const EventTypes::Eve
                 {
                     spdlog::debug("Analytics processing event: [Shot] PlayerID: {} TargetID: {} Damage: {}", data.shooterId, data.targetId, data.damage);
 
-                    const auto foundPlayer_Shooter = _playersStatus.find(data.shooterId);
-                    const auto foundPlayer_Target = _playersStatus.find(data.targetId);
-                    if (foundPlayer_Shooter != _playersStatus.end() && foundPlayer_Shooter->second.health > 0 &&
-                        foundPlayer_Target != _playersStatus.end() && foundPlayer_Target->second.health > 0)
+                    const auto foundPlayerShooter = playersStatus_.find(data.shooterId);
+                    const auto foundPlayerTarget = playersStatus_.find(data.targetId);
+                    if (foundPlayerShooter != playersStatus_.end() && foundPlayerShooter->second.health > 0 &&
+                        foundPlayerTarget != playersStatus_.end() && foundPlayerTarget->second.health > 0)
                     {
-                        foundPlayer_Target->second.health -= std::min(foundPlayer_Target->second.health, data.damage);
+                        foundPlayerTarget->second.health -= std::min(foundPlayerTarget->second.health, data.damage);
                     }
                 }
                 else
                 {
-                    spdlog::error("Unsupported event type passed to Analytics::ProcessEventsSynchronously.");
-                    assert(false && "Unsupported event type passed to Analytics::ProcessEventsSynchronously.");
+                    spdlog::error("Unsupported event type passed to Analytics::processEventsSynchronously.");
+                    assert(false && "Unsupported event type passed to Analytics::processEventsSynchronously.");
                 }
             }, currentEvent.data);
     }

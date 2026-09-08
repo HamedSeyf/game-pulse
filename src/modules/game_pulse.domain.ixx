@@ -12,11 +12,11 @@ import <variant>;
 export
 {
 
-    using T_ID = std::uint64_t;
-    using T_Tick = std::uint64_t;
+    using TId = std::uint64_t;
+    using TTick = std::uint64_t;
     using TPlayerHealthType = uint64_t;
     using TPlayerPositionType = std::array<double, 2>;
-    inline constexpr TPlayerHealthType PlayerMaxHealth = 10000;
+    inline constexpr TPlayerHealthType kPlayerMaxHealth = 10000;
 
     namespace EventTypes
     {
@@ -29,27 +29,27 @@ export
 
         struct SpawnEvent
         {
-            T_ID playerId;
+            TId playerId;
             TPlayerPositionType position;
         };
 
         struct MoveEvent
         {
-            T_ID playerId;
+            TId playerId;
             TPlayerPositionType position;
         };
 
         struct ShotEvent
         {
-            T_ID shooterId;
-            T_ID targetId;
+            TId shooterId;
+            TId targetId;
             TPlayerHealthType damage;
         };
 
         struct Event
         {
-            T_ID id;
-            T_Tick tick;
+            TId id;
+            TTick tick;
 
             std::variant<SpawnEvent, MoveEvent, ShotEvent> data;
         };
@@ -59,27 +59,27 @@ export
     {
         struct PlayerStatus
         {
-            TPlayerHealthType health = PlayerMaxHealth;
+            TPlayerHealthType health = kPlayerMaxHealth;
             TPlayerPositionType position{ 0.0, 0.0 };
         };
     }
 
     struct Configuration final
     {
-        std::chrono::milliseconds tick_duration{40};
-        size_t queue_capacity = 200;
-        size_t batch_size = 10;
-        size_t player_count = 5;
-        std::chrono::milliseconds snapshot_interval{500};
-        bool shutdown_gracefully = true;
+        std::chrono::milliseconds tickDuration{40};
+        size_t queueCapacity = 200;
+        size_t batchSize = 10;
+        size_t playerCount = 5;
+        std::chrono::milliseconds snapshotInterval{500};
+        bool shutdownGracefully = true;
     };
 
-    class GlobalID
+    class GlobalId
     {
     public:
-        [[nodiscard]] inline static T_ID NextID() noexcept { return ++latestID; };
+        [[nodiscard]] inline static TId nextId() noexcept { return ++latestId_; };
     private:
-        inline static std::atomic<T_ID> latestID{ 0 };
+        inline static std::atomic<TId> latestId_{ 0 };
     };
 
     class TickClock
@@ -88,8 +88,8 @@ export
         using Tick = std::uint64_t;
 
         explicit TickClock(std::chrono::milliseconds tickDuration)
-            : _start(std::chrono::steady_clock::now())
-            , _tickDuration(tickDuration)
+            : start_(std::chrono::steady_clock::now())
+            , tickDuration_(tickDuration)
         {
             if (tickDuration <= std::chrono::milliseconds::zero())
             {
@@ -97,20 +97,20 @@ export
             }
         }
 
-        [[nodiscard]] Tick GetCurrentTick() const
+        [[nodiscard]] Tick getCurrentTick() const
         {
-            const auto elapsed = std::chrono::steady_clock::now() - _start;
-            return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() / _tickDuration.count();
+            const auto elapsed = std::chrono::steady_clock::now() - start_;
+            return std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() / tickDuration_.count();
         }
 
-        [[nodiscard]] std::chrono::steady_clock::time_point GetStartOfTick(const Tick tick) const noexcept
+        [[nodiscard]] std::chrono::steady_clock::time_point getStartOfTick(const Tick tick) const noexcept
         {
-            return _start + _tickDuration * static_cast<std::chrono::milliseconds::rep>(tick);
+            return start_ + tickDuration_ * static_cast<std::chrono::milliseconds::rep>(tick);
         }
 
     private:
-        std::chrono::steady_clock::time_point _start;
-        const std::chrono::milliseconds _tickDuration;
+        std::chrono::steady_clock::time_point start_;
+        const std::chrono::milliseconds tickDuration_;
     };
 
 }

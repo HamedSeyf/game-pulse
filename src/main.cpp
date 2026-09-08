@@ -36,11 +36,11 @@ namespace
     // may only touch a small set of async-signal-safe operations, and a lock-free atomic
     // isn't guaranteed to be one of them. Polling it from ordinary thread context (below)
     // keeps every real shutdown action out of the handler itself.
-    volatile std::sig_atomic_t g_ShutdownRequested = 0;
+    volatile std::sig_atomic_t shutdownRequested = 0;
 
-    extern "C" void HandleShutdownSignal(int) noexcept
+    extern "C" void handleShutdownSignal(int) noexcept
     {
-        g_ShutdownRequested = 1;
+        shutdownRequested = 1;
     }
 }
 
@@ -49,7 +49,7 @@ int main(int argc, char** argv)
     std::shared_ptr<Configuration> cfg = std::make_shared<Configuration>();
 
     // Parsing the passed arguments to derive Configuration
-    const auto parse_value = []<typename T>(std::string_view value, T& destination) noexcept
+    const auto parseValue = []<typename T>(std::string_view value, T& destination) noexcept
     {
         if constexpr (ChronoDuration<T>)
         {
@@ -85,7 +85,7 @@ int main(int argc, char** argv)
         const std::string_view argument{argv[index]};
         std::string_view value;
 
-        const auto read_value = [&](std::string_view option) noexcept {
+        const auto readValue = [&](std::string_view option) noexcept {
             if (argument == option)
             {
                 if (++index == argc)
@@ -105,43 +105,43 @@ int main(int argc, char** argv)
             return false;
         };
 
-        if (read_value("--queue-size"))
+        if (readValue("--queue-size"))
         {
-            if (!parse_value(value, cfg->queue_capacity))
+            if (!parseValue(value, cfg->queueCapacity))
             {
                 return 2;
             }
         }
-        else if (read_value("--batch-size"))
+        else if (readValue("--batch-size"))
         {
-            if (!parse_value(value, cfg->batch_size))
+            if (!parseValue(value, cfg->batchSize))
             {
                 return 2;
             }
         }
-        else if (read_value("--player-count"))
+        else if (readValue("--player-count"))
         {
-            if (!parse_value(value, cfg->player_count))
+            if (!parseValue(value, cfg->playerCount))
             {
                 return 2;
             }
         }
-        else if (read_value("--snapshot-interval"))
+        else if (readValue("--snapshot-interval"))
         {
-            if (!parse_value(value, cfg->snapshot_interval))
+            if (!parseValue(value, cfg->snapshotInterval))
             {
                 return 2;
             }
         }
-        else if (read_value("--shutdown-gracefully"))
+        else if (readValue("--shutdown-gracefully"))
         {
             if (value == "true" || value == "1")
             {
-                cfg->shutdown_gracefully = true;
+                cfg->shutdownGracefully = true;
             }
             else if (value == "false" || value == "0")
             {
-                cfg->shutdown_gracefully = false;
+                cfg->shutdownGracefully = false;
             }
             else
             {
@@ -162,13 +162,13 @@ int main(int argc, char** argv)
 
     try
     {
-        std::shared_ptr<TickClock> tickClock = std::make_shared<TickClock>(cfg->tick_duration);
+        std::shared_ptr<TickClock> tickClock = std::make_shared<TickClock>(cfg->tickDuration);
         std::shared_ptr<Analytics> analytics = std::make_shared<Analytics>();
-        std::shared_ptr<Reporting> reporting = std::make_shared<Reporting>(analytics, cfg->snapshot_interval);
-        std::shared_ptr<Queue> queue = std::make_shared<Queue>(cfg->queue_capacity);
-        std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(tickClock, queue, cfg->batch_size);
+        std::shared_ptr<Reporting> reporting = std::make_shared<Reporting>(analytics, cfg->snapshotInterval);
+        std::shared_ptr<Queue> queue = std::make_shared<Queue>(cfg->queueCapacity);
+        std::shared_ptr<Pipeline> pipeline = std::make_shared<Pipeline>(tickClock, queue, cfg->batchSize);
 
-        if (const auto result = pipeline->RegisterProcessor(analytics); !result)
+        if (const auto result = pipeline->registerProcessor(analytics); !result)
         {
             spdlog::critical("Failed to register the analytics.");
             assert(false && "Failed to register the analytics.");
@@ -176,14 +176,14 @@ int main(int argc, char** argv)
         }
 
         /* Simulators for player related events */
-        std::vector<T_ID> playerIDs(cfg->player_count);
+        std::vector<TId> playerIds(cfg->playerCount);
         std::generate(
-            playerIDs.begin(),
-            playerIDs.end(),
+            playerIds.begin(),
+            playerIds.end(),
             []()
             {
-                return GlobalID::NextID();
-            });      
+                return GlobalId::nextId();
+            });
 
         const SimulatorTypes::TEventGenerationWeights eventGenerationWeights{
             .spawnWeight = 0.10,
@@ -194,20 +194,20 @@ int main(int argc, char** argv)
         constexpr std::uint64_t masterSimulatorSeed = 0x5EED'2026ULL;
 
         std::vector<std::shared_ptr<Simulator>> simulators;
-        simulators.reserve(cfg->player_count);
+        simulators.reserve(cfg->playerCount);
 
-        for (const auto currentPlayerId : playerIDs)
+        for (const auto currentPlayerId : playerIds)
         {
-            auto otherPlayerIDs = playerIDs;
+            auto otherPlayerIds = playerIds;
 
-            std::erase(otherPlayerIDs, currentPlayerId);
+            std::erase(otherPlayerIds, currentPlayerId);
 
             std::shared_ptr<Simulator> simulator = std::make_shared<Simulator>
                 (
                     tickClock,
                     queue,
                     currentPlayerId,
-                    otherPlayerIDs,
+                    otherPlayerIds,
                     eventGenerationWeights,
                     masterSimulatorSeed + currentPlayerId
                 );
@@ -215,7 +215,7 @@ int main(int argc, char** argv)
             simulators.push_back(simulator);
         }
 
-        if (const auto result = queue->SwitchToState(QueueTypes::TStateMachineState::InProgress); !result)
+        if (const auto result = queue->switchToState(QueueTypes::TStateMachineState::InProgress); !result)
         {
             spdlog::critical("Failed to start the queue.");
             assert(false && "Failed to start the queue.");
@@ -224,7 +224,7 @@ int main(int argc, char** argv)
 
         for (auto& currentSimulator : simulators)
         {
-            if (const auto result = currentSimulator->SwitchToState(TStateMachineState::InProgress); !result)
+            if (const auto result = currentSimulator->switchToState(TStateMachineState::InProgress); !result)
             {
                 spdlog::critical("Failed to start simulator(s).");
                 assert(false && "Failed to start simulator(s).");
@@ -232,31 +232,31 @@ int main(int argc, char** argv)
             }
         }
 
-        if (const auto result = reporting->SwitchToState(TStateMachineState::InProgress); !result)
+        if (const auto result = reporting->switchToState(TStateMachineState::InProgress); !result)
         {
             spdlog::critical("Failed to start reporting.");
             assert(false && "Failed to start reporting.");
             return 1;
         }
 
-        if (const auto result = pipeline->SwitchToState(TStateMachineState::InProgress); !result)
+        if (const auto result = pipeline->switchToState(TStateMachineState::InProgress); !result)
         {
             spdlog::critical("Failed to start the pipeline.");
             assert(false && "Failed to start the pipeline.");
             return 1;
         }
 
-        std::signal(SIGINT, HandleShutdownSignal);
-        std::signal(SIGTERM, HandleShutdownSignal);
+        std::signal(SIGINT, handleShutdownSignal);
+        std::signal(SIGTERM, handleShutdownSignal);
 
-        spdlog::info("GamePulse is running. Send SIGINT/SIGTERM (e.g. Ctrl+C) to shut down {}.", cfg->shutdown_gracefully ? "gracefully" : "immediately");
+        spdlog::info("GamePulse is running. Send SIGINT/SIGTERM (e.g. Ctrl+C) to shut down {}.", cfg->shutdownGracefully ? "gracefully" : "immediately");
 
-        while (!g_ShutdownRequested && pipeline->GetState() == TStateMachineState::InProgress)
+        while (!shutdownRequested && pipeline->getState() == TStateMachineState::InProgress)
         {
             HAMEDSEYF_SPIN_OR_SLEEP_MS(false, 50);
         }
 
-        if (g_ShutdownRequested)
+        if (shutdownRequested)
         {
             spdlog::info("Shutdown signal received. Beginning orderly shutdown.");
         }
@@ -268,21 +268,21 @@ int main(int argc, char** argv)
         // Producers first: stop and fully join every simulator so none of them can push another event or hold a stale watermark, before deciding what happens to whatever they already queued.
         for (auto& currentSimulator : simulators)
         {
-            currentSimulator->SwitchToState(TStateMachineState::Stopped);
+            currentSimulator->switchToState(TStateMachineState::Stopped);
         }
         for (auto& currentSimulator : simulators)
         {
-            currentSimulator->JoinAndWait();
+            currentSimulator->joinAndWait();
         }
 
         // A graceful stop drains whatever is left in the queue to the pipeline before finishing; a non-graceful stop clears the queue immediately and drops it.
-        queue->SwitchToState(cfg->shutdown_gracefully ? QueueTypes::TStateMachineState::Stopping_Gracefully : QueueTypes::TStateMachineState::Stopped);
+        queue->switchToState(cfg->shutdownGracefully ? QueueTypes::TStateMachineState::StoppingGracefully : QueueTypes::TStateMachineState::Stopped);
 
         // Pipeline notices the queue has shut down (drained or cleared) and stops itself.
-        pipeline->JoinAndWait();
+        pipeline->joinAndWait();
 
-        reporting->SwitchToState(TStateMachineState::Stopped);
-        reporting->JoinAndWait();
+        reporting->switchToState(TStateMachineState::Stopped);
+        reporting->joinAndWait();
 
         spdlog::info("Shutdown complete.");
     }

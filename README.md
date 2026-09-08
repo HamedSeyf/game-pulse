@@ -28,6 +28,8 @@ Features used across the application and its `hamed_common` dependency include:
 | C++20 | Named modules and header-unit imports | Separate interfaces and implementation units, and import standard-library headers. |
 | C++20 | Concepts, `requires` expressions, and `requires` clauses | Express type requirements through `ChronoDuration`, `NothrowQueuePayload`, and constrained templates in `hamed_common`. Simple, type, and compound requirements check supported operations and their result types. |
 | C++20 | Standard-library concepts | Use constraints such as `std::destructible`, `std::constructible_from`, `std::predicate`, `std::same_as`, and `std::convertible_to` in payload and shared utility contracts. |
+| C++20 | Ranges library (`std::ranges`) | Constrain and implement `bubbleSort`/`mergeSort` in `hamed_common` over `std::ranges::random_access_range` (via `std::sortable` and `std::indirect_strict_weak_order`), and give the ring queue its own random-access iterator so it works with `std::ranges::begin`/`end`/`size`, `std::ranges::iter_swap`, and `std::ranges::less`. |
+| C++20 | Three-way comparison (`operator<=>`) | Derive the ring queue iterator's full ordering from a single spaceship comparison in `hamed_common`. |
 | C++20 | Lambdas with explicit template parameter lists | Share command-line value parsing between numeric values and chrono durations. |
 | C++20 | Designated initializers | Construct event payloads and event-generation settings with named fields. |
 | C++20 | `std::jthread`, `std::stop_token`, and interruptible condition-variable waits | Manage workers and cooperative cancellation, including queue waits, waits for the next simulation tick, and waits between snapshot reports. |
@@ -75,7 +77,7 @@ Command-line parameters let you change queue capacity, processing batch size, th
 | `--batch-size` | `10` | Maximum number of events consumed in a processing batch. |
 | `--player-count` | `5` | Number of simulated players. The current simulator requires at least two players. |
 | `--snapshot-interval` | `500` | Wait interval in milliseconds between snapshot reports; must be positive. |
-| `--shutdown-gracefully` | `true` | Intended shutdown policy; accepts `true`/`false` or `1`/`0`, with application-level integration still pending. |
+| `--shutdown-gracefully` | `true` | Shutdown policy on SIGINT/SIGTERM: when `true`, the queue drains to the pipeline before stopping; when `false`, it clears immediately. Accepts `true`/`false` or `1`/`0`. |
 
 For example, using the Visual Studio Debug build:
 
@@ -88,4 +90,4 @@ Use positive queue and batch sizes and a positive snapshot interval, with the ba
 
 ## Current status
 
-The simulation, analytics, and reporting path is implemented. Reporting periodically logs player health and position from analytics snapshots to `gamepulse.log`, alongside diagnostic output. Application-level shutdown orchestration is still in progress; `--shutdown-gracefully` is parsed but is not yet connected to the shutdown flow.
+The simulation, analytics, and reporting path is implemented. Reporting periodically logs player health and position from analytics snapshots to `gamepulse.log`, alongside diagnostic output. Application-level shutdown orchestration is implemented: `main.cpp` catches SIGINT/SIGTERM, stops the simulators, then honors `--shutdown-gracefully` to either drain the queue to the pipeline or clear it immediately, before stopping the pipeline and reporting worker in turn.

@@ -31,15 +31,15 @@ export
             // duration of this call. A processor that needs the events afterward must copy
             // them into processor-owned storage before returning.
             // events are sorted based on tick values and then their id values.
-            virtual void ProcessEventsSynchronously(const std::span<const EventTypes::Event>& events) = 0;
+            virtual void processEventsSynchronously(const std::span<const EventTypes::Event>& events) = 0;
             virtual ~ProcessorInterface() = default;
         };
 
         enum class Error
         {
-            bad_arguments = 0,
-            processor_already_registered,
-            processor_not_registered,
+            BadArguments = 0,
+            ProcessorAlreadyRegistered,
+            ProcessorNotRegistered,
         };
     }
 
@@ -52,27 +52,27 @@ export
         explicit Pipeline(std::shared_ptr<TickClock> tickClock, std::shared_ptr<Queue> queue, const std::size_t batchSize);
         ~Pipeline();
 
-        std::expected<TProcessorHandle, PipelineTypes::Error> RegisterProcessor(std::shared_ptr<PipelineTypes::ProcessorInterface> processor);
-        std::expected<void, PipelineTypes::Error> UnRegisterProcessor(const TProcessorHandle& handle);
+        std::expected<TProcessorHandle, PipelineTypes::Error> registerProcessor(std::shared_ptr<PipelineTypes::ProcessorInterface> processor);
+        std::expected<void, PipelineTypes::Error> unRegisterProcessor(const TProcessorHandle& handle);
 
-        void JoinAndWait();
+        void joinAndWait();
 
     protected:
-        
-        virtual bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
+
+        virtual bool onStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 
-        std::shared_ptr<TickClock> _tickClock;
-        std::weak_ptr<Queue> _queue;
-        std::size_t _batch_size;
+        std::shared_ptr<TickClock> tickClock_;
+        std::weak_ptr<Queue> queue_;
+        std::size_t batchSize_;
 
-        inline static constexpr std::string_view SubscriptionRegistryKey = "PipelineProcessors";
+        inline static constexpr std::string_view kSubscriptionRegistryKey = "PipelineProcessors";
 
-        TSubscriptionRegistry<std::weak_ptr<PipelineTypes::ProcessorInterface>, std::string_view, TProcessorHandle> _subscriptionRegistry;
+        TSubscriptionRegistry<std::weak_ptr<PipelineTypes::ProcessorInterface>, std::string_view, TProcessorHandle> subscriptionRegistry_;
 
-        std::jthread _workerThread;
+        std::jthread workerThread_;
 
-        void WorkerMain(std::stop_token stopToken);
+        void workerMain(std::stop_token stopToken);
     };
 }
