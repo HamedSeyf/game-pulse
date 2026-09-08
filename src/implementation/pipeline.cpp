@@ -115,7 +115,7 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
 {
     std::vector<EventTypes::Event> eventsBatchBuffer(_batch_size, {});
 
-    while (!stopToken.stop_requested() || (GetState() == TStateMachineState::Stopping_Gracefully))
+    while (!stopToken.stop_requested())
     {
         const TickClock::Tick targetTick = _tickClock->GetCurrentTick();
 
@@ -143,8 +143,10 @@ void Pipeline::WorkerMain(std::stop_token stopToken)
                 break;
 
             case QueueTypes::Error::queue_not_started_or_shut_down:
-                spdlog::error("Broken logic and contract between Pipeline & Queue: queue's state changes should initiate and hence be synced with the pipeline.");
-                assert(false && "Broken logic and contract between Pipeline & Queue: queue's state changes should initiate and hence be synced with the pipeline.");
+                // Expected during shutdown: the queue has either finished draining
+                // (graceful stop) or was cleared immediately (non-graceful stop).
+                // Either way, there is nothing left for this pipeline to do.
+                spdlog::info("Queue has shut down. Pipeline is stopping.");
                 break;
 
             case QueueTypes::Error::operation_cancelled:

@@ -22,12 +22,6 @@ export
 
     namespace SimulatorTypes
     {
-        enum class TSimulatorStateMachineState
-        {
-            NotStarted = 0,
-            InProgress,
-            Stopped,
-        };
 
         struct TEventGenerationWeights final
         {
@@ -38,7 +32,7 @@ export
         };
     }
 
-    class Simulator : public TStateMachine<SimulatorTypes::TSimulatorStateMachineState>
+    class Simulator : public TStateMachine<>
     {
     public:
 
@@ -49,10 +43,13 @@ export
             const std::span<const T_ID> otherPlayerIDs,
             SimulatorTypes::TEventGenerationWeights eventGenerationWeights,
             std::uint64_t randomSeed);
+        ~Simulator();
+
+        void JoinAndWait();
 
     protected:
 
-        bool OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept override;
+        bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 

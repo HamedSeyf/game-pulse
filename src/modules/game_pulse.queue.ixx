@@ -31,6 +31,14 @@ export
     namespace QueueTypes
     {
 
+        enum class TStateMachineState
+        {
+            NotStarted = 0,
+            InProgress,
+            Stopping_Gracefully,
+            Stopped,
+        };
+
         enum class Error
         {
             bad_arguments = 0,
@@ -45,7 +53,7 @@ export
 
     // TODO: [Future expansion] Every simulator happens to unregister cleanly on every exit path, so queue does not end up with stalled simulators;
     // However, the Queue class itself has no timeout or heartbeat protection against a producer that goes silent without unregistering.
-    class Queue final : public TStateMachine<>
+    class Queue final : public TStateMachine<QueueTypes::TStateMachineState>
     {
     public:
 
@@ -67,8 +75,8 @@ export
 
     protected:
         
-        virtual bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
-        virtual void OnStateTransitionUnlocked(const TStateMachineState newState) noexcept override;
+        virtual bool OnStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept override;
+        virtual void OnStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept override;
 
     private:
 

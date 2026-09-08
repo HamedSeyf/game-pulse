@@ -2,6 +2,9 @@
 #include <algorithm>
 #include <cassert>
 #include <charconv>
+#include <chrono>
+#include <csignal>
+#include <thread>
 #include <vector>
 #include <memory>
 #include <string_view>
@@ -9,6 +12,8 @@
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
+
+#include "hamed_common/platform.h"
 
 import game_pulse.analytics;
 import game_pulse.domain;
@@ -24,6 +29,20 @@ concept ChronoDuration =
     typename T::rep;
     typename T::period;
 };
+
+namespace
+{
+    // Set from a signal handler, so it must stay a plain sig_atomic_t: a signal handler
+    // may only touch a small set of async-signal-safe operations, and a lock-free atomic
+    // isn't guaranteed to be one of them. Polling it from ordinary thread context (below)
+    // keeps every real shutdown action out of the handler itself.
+    volatile std::sig_atomic_t g_ShutdownRequested = 0;
+
+    extern "C" void HandleShutdownSignal(int) noexcept
+    {
+        g_ShutdownRequested = 1;
+    }
+}
 
 int main(int argc, char** argv)
 {
@@ -196,7 +215,7 @@ int main(int argc, char** argv)
             simulators.push_back(simulator);
         }
 
-        if (const auto result = queue->SwitchToState(TStateMachineState::InProgress); !result)
+        if (const auto result = queue->SwitchToState(QueueTypes::TStateMachineState::InProgress); !result)
         {
             spdlog::critical("Failed to start the queue.");
             assert(false && "Failed to start the queue.");
@@ -205,7 +224,7 @@ int main(int argc, char** argv)
 
         for (auto& currentSimulator : simulators)
         {
-            if (const auto result = currentSimulator->SwitchToState(SimulatorTypes::TSimulatorStateMachineState::InProgress); !result)
+            if (const auto result = currentSimulator->SwitchToState(TStateMachineState::InProgress); !result)
             {
                 spdlog::critical("Failed to start simulator(s).");
                 assert(false && "Failed to start simulator(s).");
@@ -213,7 +232,7 @@ int main(int argc, char** argv)
             }
         }
 
-        if (const auto result = reporting->SwitchToState(ReportingTypes::TReportingStateMachineState::InProgress); !result)
+        if (const auto result = reporting->SwitchToState(TStateMachineState::InProgress); !result)
         {
             spdlog::critical("Failed to start reporting.");
             assert(false && "Failed to start reporting.");
@@ -227,7 +246,45 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        std::signal(SIGINT, HandleShutdownSignal);
+        std::signal(SIGTERM, HandleShutdownSignal);
+
+        spdlog::info("GamePulse is running. Send SIGINT/SIGTERM (e.g. Ctrl+C) to shut down {}.", cfg->shutdown_gracefully ? "gracefully" : "immediately");
+
+        while (!g_ShutdownRequested && pipeline->GetState() == TStateMachineState::InProgress)
+        {
+            HAMEDSEYF_SPIN_OR_SLEEP_MS(false, 50);
+        }
+
+        if (g_ShutdownRequested)
+        {
+            spdlog::info("Shutdown signal received. Beginning orderly shutdown.");
+        }
+        else
+        {
+            spdlog::warn("Pipeline stopped on its own; see prior log entries for the cause. Shutting down the rest of the system.");
+        }
+
+        // Producers first: stop and fully join every simulator so none of them can push another event or hold a stale watermark, before deciding what happens to whatever they already queued.
+        for (auto& currentSimulator : simulators)
+        {
+            currentSimulator->SwitchToState(TStateMachineState::Stopped);
+        }
+        for (auto& currentSimulator : simulators)
+        {
+            currentSimulator->JoinAndWait();
+        }
+
+        // A graceful stop drains whatever is left in the queue to the pipeline before finishing; a non-graceful stop clears the queue immediately and drops it.
+        queue->SwitchToState(cfg->shutdown_gracefully ? QueueTypes::TStateMachineState::Stopping_Gracefully : QueueTypes::TStateMachineState::Stopped);
+
+        // Pipeline notices the queue has shut down (drained or cleared) and stops itself.
         pipeline->JoinAndWait();
+
+        reporting->SwitchToState(TStateMachineState::Stopped);
+        reporting->JoinAndWait();
+
+        spdlog::info("Shutdown complete.");
     }
     catch (const std::exception& e)
     {

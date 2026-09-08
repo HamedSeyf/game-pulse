@@ -15,25 +15,18 @@ import <thread>;
 export
 {
 
-    namespace ReportingTypes
-    {
-        enum class TReportingStateMachineState
-        {
-            NotStarted = 0,
-            InProgress,
-            Stopped,
-        };
-    }
-
-    class Reporting : public TStateMachine<ReportingTypes::TReportingStateMachineState>
+    class Reporting : public TStateMachine<>
     {
     public:
 
         explicit Reporting(std::shared_ptr<Analytics> analytics, std::chrono::milliseconds snapshotInterval);
+        ~Reporting();
+
+        void JoinAndWait();
 
     protected:
 
-        bool OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept override;
+        bool OnStateTransitionLocked(const TStateMachineState newState) noexcept override;
 
     private:
 

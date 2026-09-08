@@ -134,7 +134,20 @@ std::optional<EventTypes::Event> Simulator::CreateRandomEvent(const TickClock::T
     return std::nullopt;
 }
 
-bool Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMachineState newState) noexcept
+Simulator::~Simulator()
+{
+    SwitchToState(TStateMachineState::Stopped);
+}
+
+void Simulator::JoinAndWait()
+{
+    if (_workerThread.joinable())
+    {
+        _workerThread.join();
+    }
+}
+
+bool Simulator::OnStateTransitionLocked(const TStateMachineState newState) noexcept
 {
     if (!TStateMachine::OnStateTransitionLocked(newState))
     {
@@ -143,7 +156,7 @@ bool Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMac
 
     try
     {
-        if (newState == SimulatorTypes::TSimulatorStateMachineState::InProgress)
+        if (newState == TStateMachineState::InProgress)
         {
             auto queue = _queue.lock();
             if (!queue)
@@ -168,7 +181,7 @@ bool Simulator::OnStateTransitionLocked(const SimulatorTypes::TSimulatorStateMac
                 }
             );
         }
-        else if (newState == SimulatorTypes::TSimulatorStateMachineState::Stopped)
+        else if (newState == TStateMachineState::Stopped)
         {
             _workerThread.request_stop();
         }
@@ -262,7 +275,7 @@ void Simulator::WorkerMain(std::stop_token stopToken)
         }
     }
 
-    SwitchToState(SimulatorTypes::TSimulatorStateMachineState::Stopped);
+    SwitchToState(TStateMachineState::Stopped);
 
     UnregisterFromQueue();
 }

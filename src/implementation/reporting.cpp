@@ -16,7 +16,20 @@ Reporting::Reporting(std::shared_ptr<Analytics> analytics, std::chrono::millisec
     }
 }
 
-bool Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMachineState newState) noexcept
+Reporting::~Reporting()
+{
+    SwitchToState(TStateMachineState::Stopped);
+}
+
+void Reporting::JoinAndWait()
+{
+    if (_workerThread.joinable())
+    {
+        _workerThread.join();
+    }
+}
+
+bool Reporting::OnStateTransitionLocked(const TStateMachineState newState) noexcept
 {
     if (!TStateMachine::OnStateTransitionLocked(newState))
     {
@@ -25,7 +38,7 @@ bool Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMac
 
     try
     {
-        if (newState == ReportingTypes::TReportingStateMachineState::InProgress)
+        if (newState == TStateMachineState::InProgress)
         {
             _workerThread = std::jthread([this](std::stop_token stopToken)
                 {
@@ -33,7 +46,7 @@ bool Reporting::OnStateTransitionLocked(const ReportingTypes::TReportingStateMac
                 }
             );
         }
-        else if (newState == ReportingTypes::TReportingStateMachineState::Stopped)
+        else if (newState == TStateMachineState::Stopped)
         {
             _workerThread.request_stop();
         }
@@ -77,7 +90,7 @@ void Reporting::WorkerMain(std::stop_token stopToken)
             else
             {
                 spdlog::warn("Analytics not found. Reporting would stop and exit now.");
-                SwitchToState(ReportingTypes::TReportingStateMachineState::Stopped);
+                SwitchToState(TStateMachineState::Stopped);
                 return;
             }
         }
@@ -102,5 +115,5 @@ void Reporting::WorkerMain(std::stop_token stopToken)
         );
     }
 
-    SwitchToState(ReportingTypes::TReportingStateMachineState::Stopped);
+    SwitchToState(TStateMachineState::Stopped);
 }

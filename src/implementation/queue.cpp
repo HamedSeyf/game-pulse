@@ -70,7 +70,7 @@ std::expected<void, QueueTypes::Error> Queue::UnRegisterSimulator(const TSimulat
 
 std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simulatorHandle, EventTypes::Event event, T_Tick completedThroughTick, std::stop_token stopToken)
 {
-    if (GetState() != TStateMachineState::InProgress)
+    if (GetState() != QueueTypes::TStateMachineState::InProgress)
     {
         return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
     }
@@ -83,8 +83,7 @@ std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simul
             stopToken,
             [this]
             {
-                return GetState() != TStateMachineState::InProgress ||
-                    !_events_queue.full();
+                return GetState() != QueueTypes::TStateMachineState::InProgress || !_events_queue.full();
             }
         );
 
@@ -94,7 +93,7 @@ std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simul
             return std::unexpected{ QueueTypes::Error::operation_cancelled };
         }
 
-        if (GetState() != TStateMachineState::InProgress)
+        if (GetState() != QueueTypes::TStateMachineState::InProgress)
         {
             return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
         }
@@ -127,7 +126,7 @@ std::expected<void, QueueTypes::Error> Queue::WaitAndPush(TSimulatorHandle simul
 
 std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop(std::span<EventTypes::Event> destination, T_Tick throughTick, std::stop_token stopToken)
 {
-    if (GetState() != TStateMachineState::InProgress)
+    if (GetState() != QueueTypes::TStateMachineState::InProgress)
     {
         return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
     }
@@ -144,7 +143,7 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop
         stopToken,
         [this, &throughTick]
         {
-            return (!_events_queue.empty() && GetSimulatorsThroughTick() >= throughTick) || GetState() == TStateMachineState::Stopped;
+            return (!_events_queue.empty() && GetSimulatorsThroughTick() >= throughTick) || GetState() == QueueTypes::TStateMachineState::Stopped;
         }
     );
 
@@ -154,9 +153,9 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop
         return std::unexpected{ QueueTypes::Error::operation_cancelled };
     }
 
-    const TStateMachineState cached_state = GetState();
+    const auto cached_state = GetState();
 
-    if (cached_state == TStateMachineState::Stopped)
+    if (cached_state == QueueTypes::TStateMachineState::Stopped)
     {
         return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
     }
@@ -175,22 +174,22 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::WaitAndPop
         {
             return event.tick <= throughTick;
         });
-    const bool shouldStop = cached_state == TStateMachineState::Stopping_Gracefully && _events_queue.empty();
+    const bool shouldStop = cached_state == QueueTypes::TStateMachineState::Stopping_Gracefully && _events_queue.empty();
 
     if (shouldStop)
     {
-        SwitchToStateLocked(lock, TStateMachineState::Stopped);
+        SwitchToStateLocked(lock, QueueTypes::TStateMachineState::Stopped);
     }
 
     lock.unlock();
 
     if (shouldStop)
     {
-        OnStateTransitionUnlocked(TStateMachineState::Stopped);
+        OnStateTransitionUnlocked(QueueTypes::TStateMachineState::Stopped);
     }
 
     // Check whether or not we should notify all waiters
-    if (cached_state == TStateMachineState::InProgress && was_full)
+    if (cached_state == QueueTypes::TStateMachineState::InProgress && was_full)
     {
         _queue_push_cv.notify_all();
     }
@@ -203,7 +202,7 @@ std::expected<void, QueueTypes::Error> Queue::UpdateSimulatorWatermark(TSimulato
     {
         std::lock_guard lock{ _state_mutex };
 
-        if (const auto cached_state = GetState(); cached_state != TStateMachineState::InProgress)
+        if (const auto cached_state = GetState(); cached_state != QueueTypes::TStateMachineState::InProgress)
         {
             return std::unexpected{ QueueTypes::Error::queue_not_started_or_shut_down };
         }
@@ -219,14 +218,14 @@ std::expected<void, QueueTypes::Error> Queue::UpdateSimulatorWatermark(TSimulato
     return {};
 }
 
-bool Queue::OnStateTransitionLocked(const TStateMachineState newState) noexcept
+bool Queue::OnStateTransitionLocked(const QueueTypes::TStateMachineState newState) noexcept
 {
     if (!TStateMachine::OnStateTransitionLocked(newState))
     {
         return false;
     }
 
-    if (newState == TStateMachineState::Stopped)
+    if (newState == QueueTypes::TStateMachineState::Stopped)
     {
         _events_queue.clear();
     }
@@ -236,9 +235,9 @@ bool Queue::OnStateTransitionLocked(const TStateMachineState newState) noexcept
     return true;
 }
 
-void Queue::OnStateTransitionUnlocked(const TStateMachineState newState) noexcept
+void Queue::OnStateTransitionUnlocked(const QueueTypes::TStateMachineState newState) noexcept
 {
-    if (newState == TStateMachineState::Stopping_Gracefully || newState == TStateMachineState::Stopped)
+    if (newState == QueueTypes::TStateMachineState::Stopping_Gracefully || newState == QueueTypes::TStateMachineState::Stopped)
     {
         _queue_push_cv.notify_all();
         _queue_pop_cv.notify_all();
