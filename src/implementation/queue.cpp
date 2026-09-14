@@ -28,7 +28,7 @@ Queue::Queue(const std::size_t queueCapacity)
 
 std::size_t Queue::getSize() const
 {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::lock_guard lock{ stateMutex_ };
     return eventsQueue_.size();
 }
 
@@ -41,7 +41,7 @@ std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::registerSimulat
         // Serialize duplicate checking and insertion so concurrent registrations
         // cannot register the same simulator ID. The registry locks each call
         // separately, so this sequence requires an outer lock.
-        std::unique_lock lock{ stateMutex_ };
+        std::lock_guard lock{ stateMutex_ };
 
         const bool foundSimulator = subscriptionRegistry_.forEachSubscribedObject(Queue::kSubscriptionRegistryKey, [&newSimulatorEntry](const auto& currentSimulatorEntry)
             {
@@ -76,7 +76,7 @@ std::expected<void, QueueTypes::Error> Queue::waitAndPush(TSimulatorHandle simul
     }
 
     {
-        std::unique_lock<std::mutex> lock(stateMutex_);
+        std::unique_lock lock{ stateMutex_ };
 
         queuePushCv_.wait(
             lock,
@@ -143,7 +143,7 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::waitAndPop
         stopToken,
         [this, &throughTick]
         {
-            return (!eventsQueue_.empty() && getSimulatorsThroughTick() >= throughTick) || getState() == QueueTypes::TStateMachineState::Stopped;
+            return (!eventsQueue_.empty() && getSimulatorsThroughTick() >= throughTick) || eventsQueue_.full() || getState() == QueueTypes::TStateMachineState::Stopped;
         }
     );
 
@@ -170,9 +170,15 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::waitAndPop
             return std::tie(lEvent.tick, lEvent.id) < std::tie(rEvent.tick, rEvent.id);
         });
 
-    const auto retvalSpan = eventsQueue_.pop_into(destination, [&throughTick](const auto& event)
+    const TTick effectiveThroughTick = wasFull ? std::max(throughTick, eventsQueue_.front().tick) : throughTick;
+    if (effectiveThroughTick != throughTick)
+    {
+        spdlog::warn("Effective throughTick has been bumped inside Queue::waitAndPop as a backpressure since Queue is at full capacity.");
+    }
+
+    const auto retvalSpan = eventsQueue_.pop_into(destination, [&effectiveThroughTick](const auto& event)
         {
-            return event.tick <= throughTick;
+            return event.tick <= effectiveThroughTick;
         });
     const bool shouldStop = cachedState == QueueTypes::TStateMachineState::StoppingGracefully && eventsQueue_.empty();
 
