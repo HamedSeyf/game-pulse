@@ -161,7 +161,7 @@ bool Simulator::onStateTransitionLocked(const TStateMachineState newState) noexc
             auto queue = queue_.lock();
             if (!queue)
             {
-                spdlog::error("Simulator failed to acquire queue on start. Rolling back state transition. PlayerID ID: {}", playerId_);
+                SPDLOG_ERROR("Simulator failed to acquire queue on start. Rolling back state transition. PlayerID ID: {}", playerId_);
                 return false;
             }
 
@@ -171,7 +171,7 @@ bool Simulator::onStateTransitionLocked(const TStateMachineState newState) noexc
             }
             else
             {
-                spdlog::error("Simulator failed to register with queue. Rolling back state transition. PlayerID: {}", playerId_);
+                SPDLOG_ERROR("Simulator failed to register with queue. Rolling back state transition. PlayerID: {}", playerId_);
                 return false;
             }
 
@@ -186,20 +186,20 @@ bool Simulator::onStateTransitionLocked(const TStateMachineState newState) noexc
             workerThread_.request_stop();
         }
     }
-    catch (const std::exception& e)
+    catch ([[maybe_unused]] const std::exception& e)
     {
         unRegisterFromQueue();
-        spdlog::error("{}", e.what());
+        SPDLOG_ERROR("{}", e.what());
         return false;
     }
     catch (...)
     {
         unRegisterFromQueue();
-        spdlog::error("Unknown non-std::exception thrown inside Simulator::onStateTransitionLocked.");
+        SPDLOG_ERROR("Unknown non-std::exception thrown inside Simulator::onStateTransitionLocked.");
         return false;
     }
 
-    spdlog::info("Simulator transitioned to new state. PlayerID: {} State: {}", playerId_, std::to_underlying(newState));
+    SPDLOG_INFO("Simulator transitioned to new state. PlayerID: {} State: {}", playerId_, std::to_underlying(newState));
 
     return true;
 }
@@ -218,7 +218,7 @@ void Simulator::workerMain(std::stop_token stopToken)
             auto queue = queue_.lock();
             if (!queue)
             {
-                spdlog::error("Simulator failed to acquire queue inside its workerMain. Exiting now. PlayerID: {}", playerId_);
+                SPDLOG_ERROR("Simulator failed to acquire queue inside its workerMain. Exiting now. PlayerID: {}", playerId_);
                 break;
             }
 
@@ -231,18 +231,18 @@ void Simulator::workerMain(std::stop_token stopToken)
                         break;
                     }
 
-                    spdlog::error("Simulator failed to push the created event to queue. Exiting this simulator.");
+                    SPDLOG_ERROR("Simulator failed to push the created event to queue. Exiting this simulator.");
                     assert(false);
                     break;
                 }
                 else
                 {
-                    spdlog::debug("Simulator successfully pushed event to queue. PlayerID: {} EventID: {}", playerId_, randomEvent->id);
+                    SPDLOG_DEBUG("Simulator successfully pushed event to queue. PlayerID: {} EventID: {}", playerId_, randomEvent->id);
                 }
             }
             else if (!queue->updateSimulatorWatermark(queueRegistrationHandle_.value(), tick))
             {
-                spdlog::error("Simulator failed to update queue with its latest watermark.");
+                SPDLOG_ERROR("Simulator failed to update queue with its latest watermark.");
                 assert(false);
                 break;
             }
@@ -263,14 +263,14 @@ void Simulator::workerMain(std::stop_token stopToken)
             tick = tickClock_->getCurrentTick();
 
         }
-        catch (const std::exception& e)
+        catch ([[maybe_unused]] const std::exception& e)
         {
-            spdlog::error("{}", e.what());
+            SPDLOG_ERROR("{}", e.what());
             break;
         }
         catch (...)
         {
-            spdlog::error("Unknown non-std::exception thrown inside Simulator::workerMain.");
+            SPDLOG_ERROR("Unknown non-std::exception thrown inside Simulator::workerMain.");
             break;
         }
     }
@@ -290,18 +290,18 @@ void Simulator::unRegisterFromQueue()
             {
                 if (const auto result = queue->unRegisterSimulator(queueRegistrationHandle_.value()); !result)
                 {
-                    spdlog::error("Failed to unregister simulator from queue. PlayerID: {}", playerId_);
+                    SPDLOG_ERROR("Failed to unregister simulator from queue. PlayerID: {}", playerId_);
                 }
             }
         }
     }
-    catch (const std::exception& e)
+    catch ([[maybe_unused]] const std::exception& e)
     {
-        spdlog::error("{}", e.what());
+        SPDLOG_ERROR("{}", e.what());
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside Simulator::unRegisterFromQueue.");
+        SPDLOG_ERROR("Unknown non-std::exception thrown inside Simulator::unRegisterFromQueue.");
     }
 
     queue_.reset();

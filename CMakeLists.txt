@@ -27,6 +27,14 @@ target_link_libraries(game_pulse
         spdlog::spdlog
 )
 
+# Compile-time floor for SPDLOG_TRACE/DEBUG/INFO/WARN/ERROR/CRITICAL: calls below this
+# level compile out entirely instead of being a runtime no-op, so profiling builds can
+# lower it (e.g. to SPDLOG_LEVEL_OFF) to remove spdlog's overhead completely.
+target_compile_definitions(game_pulse
+	PRIVATE
+		SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG
+)
+
 target_sources(game_pulse
 	PRIVATE
 		FILE_SET CXX_MODULES

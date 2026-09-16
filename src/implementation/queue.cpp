@@ -56,7 +56,7 @@ std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::registerSimulat
         registeredHandle = subscriptionRegistry_.subscribe(newSimulatorEntry, Queue::kSubscriptionRegistryKey);
     }
 
-    spdlog::info("Queue successfully registered simulator with handle: {}", registeredHandle);
+    SPDLOG_INFO("Queue successfully registered simulator with handle: {}", registeredHandle);
 
     return { std::move(registeredHandle) };
 }
@@ -64,7 +64,7 @@ std::expected<Queue::TSimulatorHandle, QueueTypes::Error> Queue::registerSimulat
 std::expected<void, QueueTypes::Error> Queue::unRegisterSimulator(const TSimulatorHandle& handle)
 {
     const bool success = subscriptionRegistry_.unsubscribe(handle);
-    spdlog::info("Queue's unregister call result: {} Handle: {}", success, handle);
+    SPDLOG_INFO("Queue's unregister call result: {} Handle: {}", success, handle);
     return success ? std::expected<void, QueueTypes::Error>{} : std::unexpected{ QueueTypes::Error::SimulatorNotRegistered };
 }
 
@@ -108,12 +108,12 @@ std::expected<void, QueueTypes::Error> Queue::waitAndPush(TSimulatorHandle simul
             // This is for debugging purposes only so worth the minor overhead
             if (eventsQueue_.full())
             {
-                spdlog::warn("Queue has reached its capacity.");
+                SPDLOG_WARN("Queue has reached its capacity.");
             }
         }
         else
         {
-            spdlog::warn("Broken internal logic as eventsQueue_ should not be full and std::move should work on event objects.");
+            SPDLOG_WARN("Broken internal logic as eventsQueue_ should not be full and std::move should work on event objects.");
             assert(false && "Broken internal logic as eventsQueue_ should not be full and std::move should work on event objects.");
             return std::unexpected{ QueueTypes::Error::InternalError };
         }
@@ -173,7 +173,7 @@ std::expected<std::span<EventTypes::Event>, QueueTypes::Error> Queue::waitAndPop
     const TTick effectiveThroughTick = wasFull ? std::max(throughTick, eventsQueue_.front().tick) : throughTick;
     if (effectiveThroughTick != throughTick)
     {
-        spdlog::warn("Effective throughTick has been bumped inside Queue::waitAndPop as a backpressure since Queue is at full capacity.");
+        SPDLOG_WARN("Effective throughTick has been bumped inside Queue::waitAndPop as a backpressure since Queue is at full capacity.");
     }
 
     const auto retvalSpan = eventsQueue_.pop_into(destination, [&effectiveThroughTick](const auto& event)
@@ -236,7 +236,7 @@ bool Queue::onStateTransitionLocked(const QueueTypes::TStateMachineState newStat
         eventsQueue_.clear();
     }
 
-    spdlog::info("Queue transitioned to new state. State: {}", std::to_underlying(newState));
+    SPDLOG_INFO("Queue transitioned to new state. State: {}", std::to_underlying(newState));
 
     return true;
 }
@@ -261,7 +261,7 @@ bool Queue::updateSimulatorWatermarkUnlocked(TSimulatorHandle simulatorHandle, T
 
         foundSimulator->completedThroughTick->emplace(completedThroughTick);
 
-        spdlog::debug("Queue successfully updated simulator's watermark. SimulatorId: {} Watermark: {}", std::move(foundSimulator->simulatorId), std::move(completedThroughTick));
+        SPDLOG_DEBUG("Queue successfully updated simulator's watermark. SimulatorId: {} Watermark: {}", std::move(foundSimulator->simulatorId), std::move(completedThroughTick));
 
         return true;
     }

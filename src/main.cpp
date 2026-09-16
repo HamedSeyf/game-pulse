@@ -170,7 +170,7 @@ int main(int argc, char** argv)
 
         if (const auto result = pipeline->registerProcessor(analytics); !result)
         {
-            spdlog::critical("Failed to register the analytics.");
+            SPDLOG_CRITICAL("Failed to register the analytics.");
             assert(false && "Failed to register the analytics.");
             return 1;
         }
@@ -217,7 +217,7 @@ int main(int argc, char** argv)
 
         if (const auto result = queue->switchToState(QueueTypes::TStateMachineState::InProgress); !result)
         {
-            spdlog::critical("Failed to start the queue.");
+            SPDLOG_CRITICAL("Failed to start the queue.");
             assert(false && "Failed to start the queue.");
             return 1;
         }
@@ -226,7 +226,7 @@ int main(int argc, char** argv)
         {
             if (const auto result = currentSimulator->switchToState(TStateMachineState::InProgress); !result)
             {
-                spdlog::critical("Failed to start simulator(s).");
+                SPDLOG_CRITICAL("Failed to start simulator(s).");
                 assert(false && "Failed to start simulator(s).");
                 return 1;
             }
@@ -234,14 +234,14 @@ int main(int argc, char** argv)
 
         if (const auto result = reporting->switchToState(TStateMachineState::InProgress); !result)
         {
-            spdlog::critical("Failed to start reporting.");
+            SPDLOG_CRITICAL("Failed to start reporting.");
             assert(false && "Failed to start reporting.");
             return 1;
         }
 
         if (const auto result = pipeline->switchToState(TStateMachineState::InProgress); !result)
         {
-            spdlog::critical("Failed to start the pipeline.");
+            SPDLOG_CRITICAL("Failed to start the pipeline.");
             assert(false && "Failed to start the pipeline.");
             return 1;
         }
@@ -249,7 +249,7 @@ int main(int argc, char** argv)
         std::signal(SIGINT, handleShutdownSignal);
         std::signal(SIGTERM, handleShutdownSignal);
 
-        spdlog::info("GamePulse is running. Send SIGINT/SIGTERM (e.g. Ctrl+C) to shut down {}.", cfg->shutdownGracefully ? "gracefully" : "immediately");
+        SPDLOG_INFO("GamePulse is running. Send SIGINT/SIGTERM (e.g. Ctrl+C) to shut down {}.", cfg->shutdownGracefully ? "gracefully" : "immediately");
 
         while (!shutdownRequested && pipeline->getState() == TStateMachineState::InProgress)
         {
@@ -258,11 +258,11 @@ int main(int argc, char** argv)
 
         if (shutdownRequested)
         {
-            spdlog::info("Shutdown signal received. Beginning orderly shutdown.");
+            SPDLOG_INFO("Shutdown signal received. Beginning orderly shutdown.");
         }
         else
         {
-            spdlog::warn("Pipeline stopped on its own; see prior log entries for the cause. Shutting down the rest of the system.");
+            SPDLOG_WARN("Pipeline stopped on its own; see prior log entries for the cause. Shutting down the rest of the system.");
         }
 
         // Producers first: stop and fully join every simulator so none of them can push another event or hold a stale watermark, before deciding what happens to whatever they already queued.
@@ -284,17 +284,17 @@ int main(int argc, char** argv)
         reporting->switchToState(TStateMachineState::Stopped);
         reporting->joinAndWait();
 
-        spdlog::info("Shutdown complete.");
+        SPDLOG_INFO("Shutdown complete.");
     }
-    catch (const std::exception& e)
+    catch ([[maybe_unused]] const std::exception& e)
     {
-        spdlog::error("{}", e.what());
+        SPDLOG_ERROR("{}", e.what());
         assert(false && "Failed to instantiate and/or start.");
         return 1;
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside main().");
+        SPDLOG_ERROR("Unknown non-std::exception thrown inside main().");
         assert(false && "Failed to instantiate and/or start.");
         return 1;
     }

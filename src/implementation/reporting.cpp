@@ -51,18 +51,18 @@ bool Reporting::onStateTransitionLocked(const TStateMachineState newState) noexc
             workerThread_.request_stop();
         }
     }
-    catch (const std::exception& e)
+    catch ([[maybe_unused]] const std::exception& e)
     {
-        spdlog::error("{}", e.what());
+        SPDLOG_ERROR("{}", e.what());
         return false;
     }
     catch (...)
     {
-        spdlog::error("Unknown non-std::exception thrown inside Reporting::onStateTransitionLocked.");
+        SPDLOG_ERROR("Unknown non-std::exception thrown inside Reporting::onStateTransitionLocked.");
         return false;
     }
 
-    spdlog::info("Reporting transitioned to new state. State: {}", std::to_underlying(newState));
+    SPDLOG_INFO("Reporting transitioned to new state. State: {}", std::to_underlying(newState));
 
     return true;
 }
@@ -77,30 +77,32 @@ void Reporting::workerMain(std::stop_token stopToken)
             {
                 const auto snapShot = sharedAnalytics->getSnapshot();
 
+#if SPDLOG_ACTIVE_LEVEL <= SPDLOG_LEVEL_INFO
                 for (const auto& currentPlayerDataPair : snapShot.playersStatus)
                 {
-                    spdlog::info(
+                    SPDLOG_INFO(
                         "Snapshot report: Player {:>6} has {:>5} health and positioned at [{:>8.3f}, {:>8.3f}]",
                         currentPlayerDataPair.first,
                         currentPlayerDataPair.second.health,
                         currentPlayerDataPair.second.position[0],
                         currentPlayerDataPair.second.position[1]);
                 }
+#endif
             }
             else
             {
-                spdlog::warn("Analytics not found. Reporting would stop and exit now.");
+                SPDLOG_WARN("Analytics not found. Reporting would stop and exit now.");
                 switchToState(TStateMachineState::Stopped);
                 return;
             }
         }
-        catch (const std::exception& e)
+        catch ([[maybe_unused]] const std::exception& e)
         {
-            spdlog::error("{}", e.what());
+            SPDLOG_ERROR("{}", e.what());
         }
         catch (...)
         {
-            spdlog::error("Unknown non-std::exception thrown inside Reporting::workerMain.");
+            SPDLOG_ERROR("Unknown non-std::exception thrown inside Reporting::workerMain.");
         }
 
         std::chrono::steady_clock::time_point nextWakeUpTime = std::chrono::steady_clock::now() + snapshotInterval_;
